@@ -1,0 +1,54 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters]
+"SharingViolationDelay"=dword:00000000
+"SharingViolationRetries"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Jet\4.0\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Jet\4.0\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Office\12.0\Access Connectivity Engine\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Office\14.0\Access Connectivity Engine\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Office\15.0\Access Connectivity Engine\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Office\16.0\Access Connectivity Engine\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Office\12.0\Access Connectivity Engine\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Office\14.0\Access Connectivity Engine\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Office\15.0\Access Connectivity Engine\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Office\16.0\Access Connectivity Engine\Engines]
+"SandBoxMode"=dword:00000002
+
+[HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\11.0\Access\Security]
+"Level"=dword:00000001
+
+[HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\12.0\Access\Security]
+"VBAWarnings"=dword:00000001
+
+[HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\14.0\Access\Security]
+"VBAWarnings"=dword:00000001
+
+[HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\15.0\Access\Security]
+"VBAWarnings"=dword:00000001
+
+[HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\16.0\Access\Security]
+"VBAWarnings"=dword:00000001
+
+
+
+

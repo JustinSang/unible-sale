@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+:root {
+  --xp-blue: #0055ea;
+  --xp-title-bg: linear-gradient(to bottom, #0058ee, #3096ff);
+  --xp-button-bg: linear-gradient(to bottom, #f0f0f0, #d4d0c8);
+  --xp-button-border: #848484;
+}
+
+/* 기본 글꼴 세팅: 맑은 고딕 및 시스템 폰트 기본, 레트로 XP 전환 시 굴림체 적용 */
+body {
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Windows XP Retro 모드 전용 폰트 및 감성 스타일링 */
+.font-sans {
+  font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", "맑은 고딕", Dotum, 돋움, sans-serif;
+}
+
+/* 레트로 XP FarPoint 스프레드 룩 */
+.dialog-box {
+  background: #d4d0c8;
+  border: 2px solid;
+  border-color: #ffffff #808080 #808080 #ffffff;
+  padding: 8px;
+}
+
+.dialog-title {
+  background: var(--xp-title-bg);
+  color: white;
+  font-weight: bold;
+  padding: 3px 8px;
+  margin-bottom: 10px;
+}
+
+.btn-xp {
+  background: var(--xp-button-bg);
+  border: 1px solid var(--xp-button-border);
+  padding: 3px 12px;
+  cursor: pointer;
+  box-shadow: inset 1px 1px #fff, inset -1px -1px #000;
+}
+
+.btn-xp:active {
+  box-shadow: inset 1px 1px #000, inset -1px -1px #fff;
+}
+
+/* 인쇄 모드 (@media print) 최적화 */
+@media print {
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+  header, footer, nav, button, .print\:hidden {
+    display: none !important;
+  }
+  main {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  @page {
+    size: auto;
+    margin: 10mm;
+  }
+}

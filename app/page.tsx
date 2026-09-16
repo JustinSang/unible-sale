@@ -75,7 +75,7 @@ export default function App() {
   const fetchFullData = useCallback(async (silent = false) => {
     try {
       if (!silent) setIsLoading(true);
-      const res = await fetch('/api/data');
+      const res = await fetch('/api/init-data');
       if (res.ok) {
         const data = await res.json();
         setProducts(data.products || []);

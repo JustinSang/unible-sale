@@ -104,6 +104,7 @@ export function SlipEntryView({
 
   // Customer instant search filter
   const [customerSearchFilter, setCustomerSearchFilter] = useState<string>('');
+  const [siteSearchFilter, setSiteSearchFilter] = useState<string>('');
 
   const filteredCustomersList = useMemo(() => {
     if (!customerSearchFilter.trim()) return customers;
@@ -114,6 +115,17 @@ export function SlipEntryView({
       (c.sites && c.sites.some(s => s.siteName.toLowerCase().includes(q)))
     );
   }, [customers, customerSearchFilter]);
+
+  // Auto-select first match if current is not in filtered list
+  React.useEffect(() => {
+    if (customerSearchFilter.trim() && filteredCustomersList.length > 0) {
+      const exists = filteredCustomersList.find(c => c.id === selectedCustomerId);
+      if (!exists) {
+        setSelectedCustomerId(filteredCustomersList[0].id);
+        setSelectedSiteId('');
+      }
+    }
+  }, [filteredCustomersList, customerSearchFilter, selectedCustomerId]);
 
   const searchResults = useMemo(() => {
     if (!productSearchKeyword.trim()) {
@@ -139,6 +151,29 @@ export function SlipEntryView({
   const currentCustomer = useMemo(() => {
     return customers.find(c => c.id === selectedCustomerId);
   }, [customers, selectedCustomerId]);
+
+  const filteredSitesList = useMemo(() => {
+    const sites = currentCustomer?.sites || [];
+    if (!siteSearchFilter.trim()) return sites;
+    const q = siteSearchFilter.toLowerCase();
+    return sites.filter(s => 
+      s.siteName.toLowerCase().includes(q) || 
+      (s.manager && s.manager.toLowerCase().includes(q))
+    );
+  }, [currentCustomer, siteSearchFilter]);
+
+  React.useEffect(() => {
+    if (siteSearchFilter.trim() && filteredSitesList.length > 0) {
+      const exists = filteredSitesList.find(s => (s.id || s.siteCode) === selectedSiteId);
+      if (!exists) {
+        const firstId = filteredSitesList[0].id || filteredSitesList[0].siteCode;
+        setSelectedSiteId(firstId);
+        setSelectedSiteName(filteredSitesList[0].siteName);
+        setSelectedSiteManager(filteredSitesList[0].manager || '');
+        setSelectedSiteAddress(filteredSitesList[0].address || '');
+      }
+    }
+  }, [filteredSitesList, siteSearchFilter, selectedSiteId]);
 
   // Customer-specific agreed prices (Price.mdb)
   const [customerPrices, setCustomerPrices] = useState<Record<string, any>>({});
@@ -543,10 +578,10 @@ export function SlipEntryView({
                 <div className="flex gap-1.5 mb-1.5">
                   <input
                     type="text"
-                    placeholder="🔍 거래처 검색/필터..."
+                    placeholder="🔍 거래처 및 현장 통합검색..."
                     value={customerSearchFilter}
                     onChange={e => setCustomerSearchFilter(e.target.value)}
-                    className="w-full px-2 py-1 border border-slate-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 font-medium"
+                    className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-slate-50 focus:bg-white focus:ring-1 focus:ring-blue-500 font-medium transition-colors"
                   />
                   {customerSearchFilter && (
                     <button
@@ -661,13 +696,31 @@ export function SlipEntryView({
                     + 새 현장
                   </button>
                 </div>
+                <div className="flex gap-1.5 mb-1.5">
+                  <input
+                    type="text"
+                    placeholder="🔍 현장명/소장 검색..."
+                    value={siteSearchFilter}
+                    onChange={e => setSiteSearchFilter(e.target.value)}
+                    className="w-full px-2 py-1 border border-blue-200 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500"
+                  />
+                  {siteSearchFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setSiteSearchFilter('')}
+                      className="px-2 py-1 text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 rounded"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
                 <select
                   value={selectedSiteId}
                   onChange={e => handleSiteSelect(e.target.value)}
                   className="w-full px-2.5 py-1.5 border border-blue-300 rounded bg-white text-blue-950 font-semibold focus:ring-1 focus:ring-blue-500 text-xs"
                 >
                   <option value="">[본사 / 현장지정 없음]</option>
-                  {currentCustomer?.sites?.map(st => (
+                  {filteredSitesList.map(st => (
                     <option key={st.id || st.siteCode} value={st.id || st.siteCode}>
                       {st.siteName} {st.manager ? `(${st.manager})` : ''}
                     </option>

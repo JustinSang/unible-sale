@@ -2,21 +2,36 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
+async function fetchAll(table: string) {
+  const { count, error } = await supabase.from(table).select('*', { count: 'exact', head: true });
+  if (error) {
+    console.error(`Error counting ${table}:`, error);
+    return [];
+  }
+  const total = count || 0;
+  const promises = [];
+  for (let i = 0; i < total; i += 1000) {
+    promises.push(supabase.from(table).select('*').range(i, i + 999));
+  }
+  const results = await Promise.all(promises);
+  return results.flatMap(r => r.data || []);
+}
+
 export async function GET() {
   try {
-    // 1. 병렬 쿼리로 Supabase에서 전체 데이터를 가져옵니다. (SaaS 모드)
+    // 1. 병렬 쿼리로 Supabase에서 전체 데이터를 가져옵니다. (SaaS 모드, 1000건 제한 우회)
     const [
       { data: configData },
-      { data: productsData },
-      { data: customersData },
-      { data: slipsData },
-      { data: pricesData }
+      productsData,
+      customersData,
+      slipsData,
+      pricesData
     ] = await Promise.all([
       supabase.from('system_config').select('config').eq('id', 'default').single(),
-      supabase.from('products').select('*'),
-      supabase.from('customers').select('*'),
-      supabase.from('slips').select('*'),
-      supabase.from('customer_prices').select('*')
+      fetchAll('products'),
+      fetchAll('customers'),
+      fetchAll('slips'),
+      fetchAll('customer_prices')
     ]);
 
     // 2. pricesData를 기존 prices.json 구조 (Record<customerId, Record<productId, priceItem>>) 형태로 변환

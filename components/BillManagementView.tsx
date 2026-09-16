@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
   CreditCard,
   Plus,
@@ -9,7 +9,11 @@ import {
   AlertTriangle,
   Building,
   CheckCircle2,
-  X
+  X,
+  Wallet,
+  Clock,
+  ArrowDownLeft,
+  ArrowUpRight
 } from 'lucide-react';
 import type { Bill, Customer, OSTheme } from '@/types';
 
@@ -27,6 +31,7 @@ export function BillManagementView({
   osTheme
 }: BillManagementViewProps) {
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
   const [filterKind, setFilterKind] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
@@ -46,15 +51,34 @@ export function BillManagementView({
     return bills.filter(b => {
       const matchKind = filterKind === 'all' || b.billKind === filterKind;
       if (!matchKind) return false;
-      if (!searchTerm.trim()) return true;
-      const q = searchTerm.toLowerCase();
+      if (!deferredSearchTerm.trim()) return true;
+      const q = deferredSearchTerm.toLowerCase();
       return (
         b.billNo.toLowerCase().includes(q) ||
         b.customerName.toLowerCase().includes(q) ||
         b.bank.toLowerCase().includes(q)
       );
     });
-  }, [bills, filterKind, searchTerm]);
+  }, [bills, filterKind, deferredSearchTerm]);
+
+  // KPI Calculations
+  const kpiData = useMemo(() => {
+    let receiveBalance = 0;
+    let payBalance = 0;
+    let dueThisMonth = 0;
+    const todayStr = new Date().toISOString().slice(0, 7); // YYYY-MM
+
+    bills.forEach(b => {
+      if (b.status !== '결제완료' && b.status !== '부도') {
+        if (b.billKind === '받을어음') receiveBalance += b.amount;
+        if (b.billKind === '지급어음') payBalance += b.amount;
+      }
+      if (b.dueDate.startsWith(todayStr) && b.status !== '결제완료') {
+        dueThisMonth++;
+      }
+    });
+    return { receiveBalance, payBalance, dueThisMonth };
+  }, [bills]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,8 +94,44 @@ export function BillManagementView({
 
   return (
     <div className="space-y-4">
+      {/* KPI Dashboard Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-emerald-600 text-[11px] font-bold mb-1 flex items-center gap-1"><ArrowDownLeft className="w-3.5 h-3.5" /> 받을어음 잔액</div>
+              <div className="text-2xl font-black text-emerald-700 font-mono">{formatKRW(kpiData.receiveBalance)}</div>
+              <div className="text-[10px] text-emerald-500 mt-0.5">결제대기 받을어음 총액</div>
+            </div>
+            <Wallet className="w-9 h-9 text-emerald-300" />
+          </div>
+        </div>
+
+        <div className="p-4 bg-gradient-to-br from-rose-50 to-rose-100/50 border border-rose-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-rose-600 text-[11px] font-bold mb-1 flex items-center gap-1"><ArrowUpRight className="w-3.5 h-3.5" /> 지급어음 잔액</div>
+              <div className="text-2xl font-black text-rose-700 font-mono">{formatKRW(kpiData.payBalance)}</div>
+              <div className="text-[10px] text-rose-500 mt-0.5">결제대기 지급어음 총액</div>
+            </div>
+            <CreditCard className="w-9 h-9 text-rose-300" />
+          </div>
+        </div>
+
+        <div className="p-4 bg-gradient-to-br from-amber-50 to-amber-100/50 border border-amber-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-amber-600 text-[11px] font-bold mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> 당월 만기 도래</div>
+              <div className="text-2xl font-black text-amber-700 font-mono">{kpiData.dueThisMonth}<span className="text-sm font-semibold text-amber-500 ml-1">건</span></div>
+              <div className="text-[10px] text-amber-500 mt-0.5">이번 달 결제 예정 어음</div>
+            </div>
+            <Calendar className="w-9 h-9 text-amber-300" />
+          </div>
+        </div>
+      </div>
+
       {/* Top Banner */}
-      <div className={`p-4 rounded-lg border shadow-xs ${
+      <div className={`p-4 rounded-xl border shadow-sm ${
         osTheme === 'winxp-retro'
           ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
           : 'bg-white border-slate-200'
@@ -95,8 +155,11 @@ export function BillManagementView({
                 placeholder="어음번호/거래처/은행 검색..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                className="pl-8 pr-3 py-1.5 border border-slate-300 rounded bg-white text-xs w-56"
+                className="pl-8 pr-8 py-1.5 border border-slate-300 rounded-lg bg-white text-xs w-64 focus:ring-1 focus:ring-blue-500 transition-colors"
               />
+              {searchTerm && (
+                <button type="button" onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"><X className="w-3.5 h-3.5" /></button>
+              )}
             </div>
 
             <button
@@ -114,7 +177,7 @@ export function BillManagementView({
                 });
                 setIsModalOpen(true);
               }}
-              className="px-3 py-1.5 text-xs font-bold rounded bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs"
+              className="px-3.5 py-2 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
             >
               <Plus className="w-4 h-4" /> 어음 등록
             </button>
@@ -126,24 +189,24 @@ export function BillManagementView({
           <span className="font-semibold text-slate-600">구분:</span>
           <button
             onClick={() => setFilterKind('all')}
-            className={`px-2.5 py-1 rounded text-xs font-semibold ${
-              filterKind === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
+            className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
+              filterKind === 'all' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             전체 ({bills.length})
           </button>
           <button
             onClick={() => setFilterKind('받을어음')}
-            className={`px-2.5 py-1 rounded text-xs font-semibold ${
-              filterKind === '받을어음' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
+            className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
+              filterKind === '받을어음' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             받을어음 ({bills.filter(b => b.billKind === '받을어음').length})
           </button>
           <button
             onClick={() => setFilterKind('지급어음')}
-            className={`px-2.5 py-1 rounded text-xs font-semibold ${
-              filterKind === '지급어음' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
+            className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
+              filterKind === '지급어음' ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
             지급어음 ({bills.filter(b => b.billKind === '지급어음').length})
@@ -152,27 +215,27 @@ export function BillManagementView({
       </div>
 
       {/* Bills Table */}
-      <div className={`p-4 rounded-lg border shadow-xs overflow-hidden ${
+      <div className={`rounded-xl border shadow-sm overflow-hidden ${
         osTheme === 'winxp-retro'
           ? 'bg-[#ece9d8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
           : 'bg-white border-slate-200'
       }`}>
-        <div className="overflow-x-auto border border-slate-200 rounded">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-100 text-slate-700 border-b border-slate-200 font-semibold select-none">
-                <th className="py-2.5 px-3">어음번호</th>
-                <th className="py-2.5 px-3">구분</th>
-                <th className="py-2.5 px-3">거래처명</th>
-                <th className="py-2.5 px-3">발행은행</th>
-                <th className="py-2.5 px-3">발행일자</th>
-                <th className="py-2.5 px-3">만기일자</th>
-                <th className="py-2.5 px-3 text-right">어음금액</th>
-                <th className="py-2.5 px-3 text-center">상태</th>
-                <th className="py-2.5 px-3">비고</th>
+        <div className="overflow-x-auto" role="region" aria-label="어음 마스터 그리드">
+          <table className="w-full text-left text-xs border-collapse font-sans" role="grid">
+            <thead role="rowgroup">
+              <tr className="bg-slate-50/90 backdrop-blur-sm text-slate-500 font-semibold border-b border-slate-200 select-none whitespace-nowrap sticky top-0 z-10">
+                <th className="py-3 px-3 min-w-[120px]">어음번호</th>
+                <th className="py-3 px-3 min-w-[90px]">구분</th>
+                <th className="py-3 px-3 min-w-[150px]">거래처명</th>
+                <th className="py-3 px-3 min-w-[120px]">발행은행</th>
+                <th className="py-3 px-3 min-w-[100px]">발행일자</th>
+                <th className="py-3 px-3 min-w-[100px]">만기일자</th>
+                <th className="py-3 px-3 min-w-[120px] text-right">어음금액</th>
+                <th className="py-3 px-3 min-w-[80px] text-center">상태</th>
+                <th className="py-3 px-3 min-w-[180px]">비고</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
+            <tbody className="divide-y divide-slate-100 bg-white" role="rowgroup">
               {filteredBills.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-8 text-center text-slate-400">
@@ -180,31 +243,45 @@ export function BillManagementView({
                   </td>
                 </tr>
               ) : (
-                filteredBills.map(b => (
-                  <tr key={b.id} className="hover:bg-slate-50">
-                    <td className="py-2 px-3 font-mono font-bold text-slate-800">{b.billNo}</td>
-                    <td className="py-2 px-3">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                        b.billKind === '받을어음' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
-                      }`}>
-                        {b.billKind}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 font-semibold text-slate-900">{b.customerName}</td>
-                    <td className="py-2 px-3 text-slate-600">{b.bank}</td>
-                    <td className="py-2 px-3 font-mono text-slate-500">{b.issueDate}</td>
-                    <td className="py-2 px-3 font-mono font-bold text-slate-800">{b.dueDate}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-blue-800">
-                      {formatKRW(b.amount)}
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                        {b.status}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-slate-600">{b.memo || '-'}</td>
-                  </tr>
-                ))
+                filteredBills.map(b => {
+                  const today = new Date().toISOString().slice(0, 10);
+                  const daysToDue = Math.ceil((new Date(b.dueDate).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24));
+                  const isNearDue = daysToDue >= 0 && daysToDue <= 7 && b.status !== '결제완료';
+
+                  return (
+                    <tr key={b.id} role="row" className={`hover:bg-blue-50/40 transition-colors whitespace-nowrap ${isNearDue ? 'bg-rose-50/30 border-l-[3px] border-l-rose-500' : ''}`}>
+                      <td className="py-2.5 px-3 font-mono font-bold text-slate-800">{b.billNo}</td>
+                      <td className="py-2.5 px-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          b.billKind === '받을어음' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-blue-100 text-blue-800 border border-blue-200'
+                        }`}>
+                          {b.billKind}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-900">{b.customerName}</td>
+                      <td className="py-2.5 px-3 text-slate-600">{b.bank}</td>
+                      <td className="py-2.5 px-3 font-mono text-slate-500">{b.issueDate}</td>
+                      <td className={`py-2.5 px-3 font-mono font-bold ${isNearDue ? 'text-rose-600' : 'text-slate-800'}`}>
+                        {b.dueDate}
+                        {isNearDue && <span className="ml-1 text-[9px] bg-rose-100 text-rose-600 px-1 rounded">D-{daysToDue}</span>}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-700">
+                        {formatKRW(b.amount)}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          b.status === '정상' ? 'bg-slate-100 text-slate-600' :
+                          b.status === '결제완료' ? 'bg-emerald-100 text-emerald-700' :
+                          b.status === '부도' ? 'bg-rose-100 text-rose-700' :
+                          'bg-amber-100 text-amber-700'
+                        }`}>
+                          {b.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600 truncate max-w-[200px]" title={b.memo}>{b.memo || '-'}</td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

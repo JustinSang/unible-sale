@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
   Plus,
   Search,
@@ -14,7 +14,11 @@ import {
   FileText,
   DollarSign,
   HardHat,
-  Check
+  Check,
+  TrendingUp,
+  Calendar,
+  AlertCircle,
+  BarChart3
 } from 'lucide-react';
 import type { Customer, Slip, OSTheme, CustomerSite } from '@/types';
 
@@ -36,6 +40,7 @@ export function CustomerMasterView({
   osTheme
 }: CustomerMasterViewProps) {
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [modalTab, setModalTab] = useState<'basic' | 'sites'>('basic');
@@ -77,8 +82,8 @@ export function CustomerMasterView({
 
   const filteredCustomers = useMemo(() => {
     return customers.filter(c => {
-      if (!searchTerm.trim()) return true;
-      const q = searchTerm.toLowerCase();
+      if (!deferredSearchTerm.trim()) return true;
+      const q = deferredSearchTerm.toLowerCase();
       const matchSite = c.sites?.some(s => s.siteName.toLowerCase().includes(q) || (s.manager && s.manager.toLowerCase().includes(q)));
       return (
         c.name.toLowerCase().includes(q) ||
@@ -90,7 +95,22 @@ export function CustomerMasterView({
         matchSite
       );
     });
-  }, [customers, searchTerm]);
+  }, [customers, deferredSearchTerm]);
+
+  // KPI Calculations
+  const kpiData = useMemo(() => {
+    let totalReceivables = 0;
+    let totalSites = 0;
+    const today = new Date();
+    const currentDay = today.getDate();
+    let closingThisMonth = 0;
+    customers.forEach(c => {
+      totalReceivables += (c.receivables || 0);
+      totalSites += (c.sites?.length || 0);
+      if (c.closingDay && Math.abs(c.closingDay - currentDay) <= 5) closingThisMonth++;
+    });
+    return { totalCustomers: customers.length, totalReceivables, totalSites, closingThisMonth };
+  }, [customers]);
 
   // Pagination for 790+ customers
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -229,8 +249,52 @@ export function CustomerMasterView({
 
   return (
     <div className="space-y-4">
+      {/* KPI Dashboard Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-blue-600 text-[11px] font-bold mb-1 flex items-center gap-1"><Users className="w-3.5 h-3.5" /> 총 거래처</div>
+              <div className="text-2xl font-black text-blue-900 font-mono">{kpiData.totalCustomers}</div>
+              <div className="text-[10px] text-blue-500 mt-0.5">등록된 거래처 수</div>
+            </div>
+            <Building className="w-9 h-9 text-blue-300" />
+          </div>
+        </div>
+        <div className="p-4 bg-gradient-to-br from-rose-50 to-rose-100/50 border border-rose-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-rose-600 text-[11px] font-bold mb-1 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" /> 총 외상 미수금</div>
+              <div className="text-xl font-black text-rose-700 font-mono">{formatKRW(kpiData.totalReceivables)}</div>
+              <div className="text-[10px] text-rose-500 mt-0.5">전 거래처 합계</div>
+            </div>
+            <DollarSign className="w-9 h-9 text-rose-300" />
+          </div>
+        </div>
+        <div className="p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-emerald-600 text-[11px] font-bold mb-1 flex items-center gap-1"><HardHat className="w-3.5 h-3.5" /> 총 공사현장</div>
+              <div className="text-2xl font-black text-emerald-700 font-mono">{kpiData.totalSites}<span className="text-sm font-semibold text-emerald-500 ml-1">곳</span></div>
+              <div className="text-[10px] text-emerald-500 mt-0.5">전 거래처 산하 현장</div>
+            </div>
+            <HardHat className="w-9 h-9 text-emerald-300" />
+          </div>
+        </div>
+        <div className="p-4 bg-gradient-to-br from-amber-50 to-amber-100/50 border border-amber-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-amber-600 text-[11px] font-bold mb-1 flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> 마감 임박</div>
+              <div className="text-2xl font-black text-amber-700 font-mono">{kpiData.closingThisMonth}<span className="text-sm font-semibold text-amber-500 ml-1">개사</span></div>
+              <div className="text-[10px] text-amber-500 mt-0.5">마감일 ±5일 이내</div>
+            </div>
+            <Calendar className="w-9 h-9 text-amber-300" />
+          </div>
+        </div>
+      </div>
+
       {/* Top action bar */}
-      <div className={`p-4 rounded-lg border shadow-xs ${
+      <div className={`p-4 rounded-xl border shadow-sm ${
         osTheme === 'winxp-retro'
           ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
           : 'bg-white border-slate-200'
@@ -239,7 +303,8 @@ export function CustomerMasterView({
           <div>
             <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <Users className="w-4 h-4 text-blue-600" />
-              <span>거래처 마스터 관리 ({customers.length}개사 등록)</span>
+              <span>거래처 마스터 관리</span>
+              <span className="text-xs font-mono text-slate-400">({filteredCustomers.length}개사 표시)</span>
             </h2>
             <p className="text-xs text-slate-500">
               매출처, 매입처 사업자정보, 외상미수금 잔액 및 결제일 관리
@@ -251,16 +316,19 @@ export function CustomerMasterView({
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="상호/대표자/사업자번호 검색..."
+                placeholder="상호/대표자/사업자번호/현장명 검색..."
                 value={searchTerm}
                 onChange={e => handleSearchChange(e.target.value)}
-                className="pl-8 pr-3 py-1.5 border border-slate-300 rounded bg-white w-60 text-xs"
+                className="pl-8 pr-8 py-1.5 border border-slate-300 rounded-lg bg-white w-64 text-xs focus:ring-1 focus:ring-blue-500 transition-colors"
               />
+              {searchTerm && (
+                <button type="button" onClick={() => handleSearchChange('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"><X className="w-3.5 h-3.5" /></button>
+              )}
             </div>
 
             <button
               onClick={handleOpenAdd}
-              className="px-3 py-1.5 text-xs font-bold rounded bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs"
+              className="px-3.5 py-2 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
             >
               <Plus className="w-4 h-4" /> 거래처 등록
             </button>
@@ -269,28 +337,28 @@ export function CustomerMasterView({
       </div>
 
       {/* Customers Table */}
-      <div className={`p-4 rounded-lg border shadow-xs overflow-hidden ${
+      <div className={`rounded-xl border shadow-sm overflow-hidden ${
         osTheme === 'winxp-retro'
           ? 'bg-[#ece9d8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
           : 'bg-white border-slate-200'
       }`}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-100 text-slate-700 border-b border-slate-300 font-semibold select-none">
-                <th className="py-2.5 px-3">코드</th>
-                <th className="py-2.5 px-3">거래처 상호명</th>
-                <th className="py-2.5 px-3">사업자등록번호</th>
-                <th className="py-2.5 px-3">대표자</th>
-                <th className="py-2.5 px-3">전화번호 / 모바일</th>
-                <th className="py-2.5 px-3">사업장 주소</th>
-                <th className="py-2.5 px-3 text-right">외상 미수잔액</th>
-                <th className="py-2.5 px-3 text-center">마감일</th>
-                <th className="py-2.5 px-3 text-center">원장조회</th>
-                <th className="py-2.5 px-3 text-center">관리</th>
+        <div className="overflow-x-auto" role="region" aria-label="거래처 마스터 그리드">
+          <table className="w-full text-left text-xs border-collapse font-sans" role="grid">
+            <thead role="rowgroup">
+              <tr className="bg-slate-50/90 backdrop-blur-sm text-slate-500 font-semibold border-b border-slate-200 select-none whitespace-nowrap sticky top-0 z-10">
+                <th className="py-3 px-3 min-w-[80px]">코드</th>
+                <th className="py-3 px-3 min-w-[160px]">거래처 상호명</th>
+                <th className="py-3 px-3 min-w-[130px]">사업자등록번호</th>
+                <th className="py-3 px-3 min-w-[80px]">대표자</th>
+                <th className="py-3 px-3 min-w-[130px]">전화번호 / 모바일</th>
+                <th className="py-3 px-3 min-w-[180px]">사업장 주소</th>
+                <th className="py-3 px-3 min-w-[120px] text-right">외상 미수잔액</th>
+                <th className="py-3 px-3 min-w-[90px] text-center">마감일</th>
+                <th className="py-3 px-3 min-w-[80px] text-center">원장조회</th>
+                <th className="py-3 px-3 min-w-[70px] text-center">관리</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 bg-white">
+            <tbody className="divide-y divide-slate-100 bg-white" role="rowgroup">
               {filteredCustomers.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-10 text-center text-slate-400">
@@ -299,7 +367,7 @@ export function CustomerMasterView({
                 </tr>
               ) : (
                 paginatedCustomers.map(c => (
-                  <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                  <tr key={c.id} role="row" className={`hover:bg-blue-50/40 transition-colors whitespace-nowrap ${(c.receivables || 0) >= 5000000 ? 'border-l-[3px] border-l-rose-400' : ''}`}>
                     <td className="py-2 px-3 font-mono font-bold text-slate-700">{c.code}</td>
                     <td className="py-2 px-3 font-semibold text-slate-900">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -430,7 +498,7 @@ export function CustomerMasterView({
       {/* Transaction History Modal */}
       {historyCustomer && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg border border-slate-300 shadow-xl max-w-3xl w-full p-4 max-h-[85vh] flex flex-col text-xs">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-5xl w-full p-4 max-h-[85vh] flex flex-col text-xs">
             <div className="flex flex-wrap items-center justify-between pb-3 border-b border-slate-200 gap-2">
               <div>
                 <div className="flex items-center gap-2">

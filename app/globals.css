@@ -67,3 +67,30 @@ body {
     margin: 10mm;
   }
 }
+
+@layer base {
+  /* 글로벌 입력 폼 포커스 링 통일 */
+  input:focus-visible, 
+  select:focus-visible, 
+  textarea:focus-visible, 
+  button:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* 글래스모피즘 범용 유틸리티 */
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.05);
+  }
+  
+  /* 모던 부드러운 그림자 */
+  .shadow-soft {
+    box-shadow: 0 2px 12px -2px rgba(0, 0, 0, 0.04), 0 1px 4px -1px rgba(0, 0, 0, 0.02);
+  }
+}

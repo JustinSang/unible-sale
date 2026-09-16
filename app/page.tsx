@@ -460,6 +460,7 @@ export default function App() {
               <CollectionPaymentView
                 customers={customers}
                 collections={collections}
+                slips={slips}
                 onAddCollection={handleAddCollection}
                 osTheme={osTheme}
               />

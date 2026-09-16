@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
   Plus,
   Trash2,
@@ -95,43 +95,47 @@ export function SlipEntryView({
 
   // History search filter
   const [historyFilter, setHistoryFilter] = useState<string>('');
+  const deferredHistoryFilter = useDeferredValue(historyFilter);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Fast Product Search Modal States (11,000+ items high performance)
   const [isProductSearchOpen, setIsProductSearchOpen] = useState<boolean>(false);
   const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
   const [productSearchKeyword, setProductSearchKeyword] = useState<string>('');
+  const deferredProductSearchKeyword = useDeferredValue(productSearchKeyword);
 
   // Customer instant search filter
   const [customerSearchFilter, setCustomerSearchFilter] = useState<string>('');
+  const deferredCustomerSearchFilter = useDeferredValue(customerSearchFilter);
   const [siteSearchFilter, setSiteSearchFilter] = useState<string>('');
+  const deferredSiteSearchFilter = useDeferredValue(siteSearchFilter);
 
   const filteredCustomersList = useMemo(() => {
-    if (!customerSearchFilter.trim()) return customers;
-    const q = customerSearchFilter.toLowerCase();
+    if (!deferredCustomerSearchFilter.trim()) return customers;
+    const q = deferredCustomerSearchFilter.toLowerCase();
     return customers.filter(c =>
       c.name.toLowerCase().includes(q) ||
       c.code.toLowerCase().includes(q) ||
       (c.sites && c.sites.some(s => s.siteName.toLowerCase().includes(q)))
     );
-  }, [customers, customerSearchFilter]);
+  }, [customers, deferredCustomerSearchFilter]);
 
   // Auto-select first match if current is not in filtered list
   React.useEffect(() => {
-    if (customerSearchFilter.trim() && filteredCustomersList.length > 0) {
+    if (deferredCustomerSearchFilter.trim() && filteredCustomersList.length > 0) {
       const exists = filteredCustomersList.find(c => c.id === selectedCustomerId);
       if (!exists) {
         setSelectedCustomerId(filteredCustomersList[0].id);
         setSelectedSiteId('');
       }
     }
-  }, [filteredCustomersList, customerSearchFilter, selectedCustomerId]);
+  }, [filteredCustomersList, deferredCustomerSearchFilter, selectedCustomerId]);
 
   const searchResults = useMemo(() => {
-    if (!productSearchKeyword.trim()) {
+    if (!deferredProductSearchKeyword.trim()) {
       return products.slice(0, 50);
     }
-    const q = productSearchKeyword.toLowerCase();
+    const q = deferredProductSearchKeyword.toLowerCase();
     const matches: Product[] = [];
     for (const p of products) {
       if (
@@ -145,7 +149,7 @@ export function SlipEntryView({
       }
     }
     return matches;
-  }, [products, productSearchKeyword]);
+  }, [products, deferredProductSearchKeyword]);
 
   // Selected customer object
   const currentCustomer = useMemo(() => {
@@ -154,16 +158,16 @@ export function SlipEntryView({
 
   const filteredSitesList = useMemo(() => {
     const sites = currentCustomer?.sites || [];
-    if (!siteSearchFilter.trim()) return sites;
-    const q = siteSearchFilter.toLowerCase();
+    if (!deferredSiteSearchFilter.trim()) return sites;
+    const q = deferredSiteSearchFilter.toLowerCase();
     return sites.filter(s => 
       s.siteName.toLowerCase().includes(q) || 
       (s.manager && s.manager.toLowerCase().includes(q))
     );
-  }, [currentCustomer, siteSearchFilter]);
+  }, [currentCustomer, deferredSiteSearchFilter]);
 
   React.useEffect(() => {
-    if (siteSearchFilter.trim() && filteredSitesList.length > 0) {
+    if (deferredSiteSearchFilter.trim() && filteredSitesList.length > 0) {
       const exists = filteredSitesList.find(s => (s.id || s.siteCode) === selectedSiteId);
       if (!exists) {
         const firstId = filteredSitesList[0].id || filteredSitesList[0].siteCode;
@@ -173,7 +177,7 @@ export function SlipEntryView({
         setSelectedSiteAddress(filteredSitesList[0].address || '');
       }
     }
-  }, [filteredSitesList, siteSearchFilter, selectedSiteId]);
+  }, [filteredSitesList, deferredSiteSearchFilter, selectedSiteId]);
 
   // Customer-specific agreed prices (Price.mdb)
   const [customerPrices, setCustomerPrices] = useState<Record<string, any>>({});
@@ -481,26 +485,142 @@ export function SlipEntryView({
   // Filtered Slip History
   const filteredSlips = useMemo(() => {
     return slips.filter(s => {
-      if (!historyFilter.trim()) return true;
-      const q = historyFilter.toLowerCase();
+      if (!deferredHistoryFilter.trim()) return true;
+      const q = deferredHistoryFilter.toLowerCase();
       return (
         s.slipNo.toLowerCase().includes(q) ||
         s.customerName.toLowerCase().includes(q) ||
+        (s.siteName && s.siteName.toLowerCase().includes(q)) ||
         s.slipDate.includes(q) ||
         s.items.some(i => i.productName.toLowerCase().includes(q))
       );
     });
-  }, [slips, historyFilter]);
+  }, [slips, deferredHistoryFilter]);
 
   const formatKRW = (num: number) => num.toLocaleString('ko-KR') + '원';
 
   return (
-    <div className="space-y-4">
-      {/* Top Slip Config Card */}
-      <div className={`p-4 rounded-lg border shadow-xs ${
+    <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-140px)] min-h-[600px] overflow-hidden">
+      {/* LEFT COLUMN: Slip History Table (Master) */}
+      <div className={`w-full lg:w-[40%] flex flex-col rounded-lg border shadow-xs overflow-hidden ${osTheme === 'winxp-retro' ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]' : 'bg-white border-slate-200'}`}>
+        <div className="flex flex-col h-full overflow-y-auto p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 className="font-bold text-sm text-slate-800">
+              최근 발행 전표 내역 ({filteredSlips.length}건)
+            </h3>
+            <p className="text-xs text-slate-500">
+              발행된 매출/매입 전표 조회, 거래명세표 재인쇄 및 삭제 관리
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="전표번호/거래처/품목 검색..."
+                value={historyFilter}
+                onChange={e => setHistoryFilter(e.target.value)}
+                className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-52"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* History Vertical Cards (Ledger View) */}
+        <div className="flex flex-col gap-2 overflow-y-auto pb-4">
+          {filteredSlips.length === 0 ? (
+            <div className="py-8 text-center text-slate-400 text-xs bg-white rounded-lg border border-slate-200">
+              발행된 전표 내역이 없습니다.
+            </div>
+          ) : (
+            filteredSlips.map(slip => {
+              const itemsSummary = slip.items
+                .map(i => `${i.productName} ${i.qty}${i.unit}`)
+                .join(', ');
+              const isSales = slip.slipType === 'sales';
+              const isPurchase = slip.slipType === 'purchase';
+              return (
+                <div 
+                  key={slip.id} 
+                  className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs hover:border-blue-400 hover:shadow-md transition-all group cursor-pointer flex flex-col gap-2 relative"
+                >
+                  {/* Top row: Date & Type */}
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold shadow-xs ${
+                        isSales ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                        isPurchase ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                      }`}>
+                        {isSales ? '매출' : isPurchase ? '매입' : '반품'}
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-500">{slip.slipDate}</span>
+                      <span className="text-[10px] font-mono text-slate-400">#{slip.slipNo}</span>
+                    </div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onOpenPrint(slip); }} 
+                        className="p-1 text-blue-600 hover:bg-blue-100 rounded" 
+                        title="명세서 인쇄"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                      </button>
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          if(confirm(`전표 [${slip.slipNo}]를 삭제하시겠습니까?\n재고 및 미수금이 원래대로 롤백됩니다.`)) onDeleteSlip(slip.id); 
+                        }} 
+                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
+                        title="전표 삭제"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Customer & Amount */}
+                  <div className="flex justify-between items-end">
+                    <div className="flex-1 min-w-0 pr-2">
+                      <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5 flex-wrap">
+                        <span className="truncate">{slip.customerName}</span>
+                        {slip.siteName && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-800 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full shrink-0 shadow-2xs">
+                            <HardHat className="w-2.5 h-2.5 text-blue-600"/>
+                            <span className="truncate max-w-[80px]">{slip.siteName}</span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500 truncate mt-0.5" title={itemsSummary}>
+                        {itemsSummary}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="font-black text-slate-800 font-mono text-[15px]">
+                        {slip.totalAmount.toLocaleString('ko-KR')}원
+                      </div>
+                      {slip.unpaidAmount > 0 && (
+                        <div className="text-[10px] text-rose-500 font-mono font-bold mt-0.5 bg-rose-50 inline-block px-1 rounded">
+                          미수: {slip.unpaidAmount.toLocaleString('ko-KR')}원
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        </div>
+      </div>
+      {/* RIGHT COLUMN: Entry Form (Detail) */}
+      <div className={`w-full lg:w-[60%] flex flex-col rounded-lg border shadow-xs overflow-hidden ${osTheme === 'winxp-retro' ? 'bg-[#ece9d8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]' : 'bg-slate-50 border-slate-200'}`}>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Top Slip Config Card (Sticky Header) */}
+      <div className={`p-4 rounded-lg border shadow-xs sticky top-0 z-10 backdrop-blur-md ${
         osTheme === 'winxp-retro'
           ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
-          : 'bg-white border-slate-200'
+          : 'bg-white/90 border-slate-200'
       }`}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3 border-b pb-3">
           <div className="flex items-center gap-2">
@@ -567,13 +687,24 @@ export function SlipEntryView({
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <label className="font-semibold text-slate-700">거래처 선택</label>
-                  <button
-                    type="button"
-                    onClick={() => onNavigateTab('customers')}
-                    className="text-[11px] text-blue-600 hover:underline"
-                  >
-                    + 거래처
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {selectedCustomerId && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedCustomerId(''); setSelectedSiteId(''); }}
+                        className="text-[11px] text-rose-500 hover:underline font-medium"
+                      >
+                        선택 취소
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab('customers')}
+                      className="text-[11px] text-blue-600 hover:underline"
+                    >
+                      + 거래처
+                    </button>
+                  </div>
                 </div>
                 <div className="flex gap-1.5 mb-1.5">
                   <input
@@ -598,6 +729,7 @@ export function SlipEntryView({
                   onChange={e => handleCustomerChange(e.target.value)}
                   className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-slate-800 font-medium focus:ring-1 focus:ring-blue-500"
                 >
+                  <option value="">-- 거래처를 선택하세요 --</option>
                   {filteredCustomersList.map(c => (
                     <option key={c.id} value={c.id}>
                       {c.name} ({c.code}) {c.sites && c.sites.length > 0 ? `[현장 ${c.sites.length}곳]` : ''}
@@ -817,28 +949,30 @@ export function SlipEntryView({
         </div>
 
         {/* Table Container - SaaS Style Spacious Grid */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse font-sans">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 select-none">
+        <div className="overflow-x-auto" role="region" aria-label="전표 상세 품목 그리드">
+          <table className="w-full text-left text-xs border-collapse font-sans" role="grid" aria-rowcount={items.length}>
+            <thead role="rowgroup">
+              <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 select-none whitespace-nowrap">
                 <th className="py-3 px-3 w-10 text-center">NO</th>
-                <th className="py-3 px-3 min-w-[180px]">품목 선택 / 검색</th>
-                <th className="py-3 px-3 min-w-[130px]">규격 (Spec)</th>
-                <th className="py-3 px-3 w-20 text-center">단위</th>
-                <th className="py-3 px-3 w-20 text-right">수량</th>
-                <th className="py-3 px-3 w-28 text-right">단가</th>
-                <th className="py-3 px-3 w-28 text-right">공급가액</th>
-                <th className="py-3 px-3 w-24 text-right">세액(10%)</th>
-                <th className="py-3 px-3 w-32 text-right">합계금액</th>
-                <th className="py-3 px-3 min-w-[120px]">품목비고</th>
-                <th className="py-3 px-3 w-12 text-center">삭제</th>
+                <th className="py-3 px-3 min-w-[200px]">품목 선택 / 검색</th>
+                <th className="py-3 px-3 min-w-[140px]">규격 (Spec)</th>
+                <th className="py-3 px-3 min-w-[70px] text-center">단위</th>
+                <th className="py-3 px-3 min-w-[90px] text-right">수량</th>
+                <th className="py-3 px-3 min-w-[110px] text-right">단가</th>
+                <th className="py-3 px-3 min-w-[120px] text-right">공급가액</th>
+                <th className="py-3 px-3 min-w-[100px] text-right">세액(10%)</th>
+                <th className="py-3 px-3 min-w-[130px] text-right">합계금액</th>
+                <th className="py-3 px-3 min-w-[140px]">품목비고</th>
+                <th className="py-3 px-3 min-w-[60px] text-center">삭제</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
+            <tbody className="divide-y divide-slate-100 bg-white" role="rowgroup">
               {items.map((row, idx) => (
                 <tr
                   key={row.id || idx}
-                  className="hover:bg-blue-50/30 transition-colors focus-within:bg-blue-50/50"
+                  role="row"
+                  aria-rowindex={idx + 1}
+                  className="hover:bg-blue-50/30 transition-colors focus-within:bg-blue-50/50 whitespace-nowrap"
                 >
                   <td className="py-3 px-3 text-center text-slate-400 font-mono">
                     {idx + 1}
@@ -980,150 +1114,6 @@ export function SlipEntryView({
         </div>
       </div>
 
-      {/* Slip History Table */}
-      <div className={`p-4 rounded-lg border shadow-xs ${
-        osTheme === 'winxp-retro'
-          ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
-          : 'bg-white border-slate-200'
-      }`}>
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <div>
-            <h3 className="font-bold text-sm text-slate-800">
-              최근 발행 전표 내역 ({filteredSlips.length}건)
-            </h3>
-            <p className="text-xs text-slate-500">
-              발행된 매출/매입 전표 조회, 거래명세표 재인쇄 및 삭제 관리
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="전표번호/거래처/품목 검색..."
-                value={historyFilter}
-                onChange={e => setHistoryFilter(e.target.value)}
-                className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-52"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* History Table */}
-        <div className="overflow-x-auto border border-slate-200 rounded">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-100 text-slate-600 border-b border-slate-200 font-semibold">
-                <th className="py-2 px-3">전표일자</th>
-                <th className="py-2 px-3">전표번호</th>
-                <th className="py-2 px-3">구분</th>
-                <th className="py-2 px-3">거래처명</th>
-                <th className="py-2 px-3">품목 요약</th>
-                <th className="py-2 px-3 text-right">합계금액</th>
-                <th className="py-2 px-3 text-right">미수잔액</th>
-                <th className="py-2 px-3 text-center">배송상태</th>
-                <th className="py-2 px-3 text-center">작업</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {filteredSlips.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400 text-xs">
-                    발행된 전표 내역이 없습니다.
-                  </td>
-                </tr>
-              ) : (
-                filteredSlips.map(slip => {
-                  const itemsSummary = slip.items
-                    .map(i => `${i.productName} ${i.qty}${i.unit}`)
-                    .join(', ');
-                  return (
-                    <tr key={slip.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 font-mono text-slate-600">{slip.slipDate}</td>
-                      <td className="py-2 px-3 font-mono font-bold text-slate-800">
-                        {slip.slipNo}
-                      </td>
-                      <td className="py-2 px-3">
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${
-                            slip.slipType === 'sales'
-                              ? 'bg-blue-100 text-blue-800'
-                              : slip.slipType === 'purchase'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-rose-100 text-rose-800'
-                          }`}
-                        >
-                          {slip.slipType === 'sales'
-                            ? '매출'
-                            : slip.slipType === 'purchase'
-                            ? '매입'
-                            : '반품'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 font-medium text-slate-800">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-semibold">{slip.customerName}</span>
-                          {slip.siteName && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-blue-800 bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded-full shadow-2xs">
-                              <HardHat className="w-2.5 h-2.5 text-blue-600" />
-                              <span>{slip.siteName}</span>
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2 px-3 text-slate-500 truncate max-w-[240px]" title={itemsSummary}>
-                        {itemsSummary}
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-800">
-                        {slip.totalAmount.toLocaleString('ko-KR')}원
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono text-rose-600">
-                        {slip.unpaidAmount.toLocaleString('ko-KR')}원
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        {slip.deliveryStatus && slip.deliveryStatus !== 'none' ? (
-                          <span className="px-1.5 py-0.5 rounded text-[11px] bg-sky-100 text-sky-800">
-                            {slip.deliveryStatus === 'pending'
-                              ? '접수'
-                              : slip.deliveryStatus === 'shipping'
-                              ? '배송중'
-                              : '완료'}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">-</span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => onOpenPrint(slip)}
-                            className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                            title="거래명세표 인쇄"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (confirm(`전표 [${slip.slipNo}]를 삭제하시겠습니까?\n재고 및 미수금이 원래대로 롤백됩니다.`)) {
-                                onDeleteSlip(slip.id);
-                              }
-                            }}
-                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
-                            title="전표 삭제"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
         </div>
       </div>
 

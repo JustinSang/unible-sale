@@ -144,7 +144,7 @@ export function CustomerMasterView({
     let collections = 0;
     customerSlips.forEach(s => {
       if (s.slipDate.startsWith(currentMonthPrefix)) {
-        if (s.slipType === 'sales') sales += s.totalAmount;
+        if (s.slipType === 'SALES') sales += s.totalAmount;
         collections += s.paidAmount || 0;
       }
     });
@@ -601,11 +601,11 @@ export function CustomerMasterView({
                             <td className="py-2.5 px-3">
                               <div className="flex items-center gap-1.5">
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                  s.slipType === 'sales' ? 'bg-rose-100 text-rose-700' : 
-                                  s.slipType === 'purchase' ? 'bg-emerald-100 text-emerald-700' :
+                                  s.slipType === 'SALES' ? 'bg-rose-100 text-rose-700' : 
+                                  s.slipType === 'PURCHASE' ? 'bg-emerald-100 text-emerald-700' :
                                   'bg-slate-100 text-slate-700'
                                 }`}>
-                                  {s.slipType === 'sales' ? '매출' : s.slipType === 'purchase' ? '매입' : '반품'}
+                                  {s.slipType === 'SALES' ? '매출' : s.slipType === 'PURCHASE' ? '매입' : '반품'}
                                 </span>
                                 <span className="font-mono text-slate-500 text-[10px]">{s.slipNo.split('-').pop()}</span>
                               </div>

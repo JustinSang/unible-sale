@@ -88,7 +88,7 @@ export function CollectionPaymentView({
 
     let monthlySales = 0;
     slips.forEach(s => {
-      if (s.slipDate.startsWith(currentMonthPrefix) && s.slipType === 'sales') {
+      if (s.slipDate.startsWith(currentMonthPrefix) && s.slipType === 'SALES') {
         monthlySales += s.totalAmount;
       }
     });

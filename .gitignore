@@ -39,3 +39,10 @@ next-env.d.ts
 data/
 *.mdb
 *.sqlite
+20260918/
+서류/
+이미지파일/
+capture.mjs
+debug_test.mjs
+update_config.js
+test_*.png

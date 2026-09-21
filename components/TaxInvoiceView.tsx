@@ -1,422 +1,648 @@
 'use client';
 
-import React, { useState, useMemo, useDeferredValue } from 'react';
-import {
-  FileCheck,
-  Plus,
-  Search,
-  Printer,
-  X,
-  CheckCircle,
-  Building,
-  DollarSign,
-  TrendingUp,
-  FileDigit
-} from 'lucide-react';
-import type { Customer, TaxInvoice, SystemConfig, OSTheme } from '@/types';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import type { Customer, TaxInvoice, SystemConfig, OSTheme, Slip } from '@/types';
+import { TaxPrintModal } from './TaxPrintModal';
+import { FileDigit, AlertCircle, X } from 'lucide-react';
 
 interface TaxInvoiceViewProps {
   customers: Customer[];
   taxInvoices: TaxInvoice[];
+  slips?: Slip[];
   config: SystemConfig;
   onAddTaxInvoice: (tax: Partial<TaxInvoice>) => Promise<void>;
+  onNavigateTab?: (tab: string) => void;
   osTheme: OSTheme;
+}
+
+// Aggregated row from slips
+interface AggregatedTaxRow {
+  id: string;
+  customerId: string;
+  customerName: string;
+  siteId?: string;
+  siteName: string;
+  amount: number;     // 공급가액
+  tax: number;        // 세액
+  total: number;      // 합계
+  items: string[];    // product names for summary
+  productSummary: string;
+  checkReceipt: '영수' | '청구';
+  slipCount: number;  // Number of slips in this aggregation
 }
 
 export function TaxInvoiceView({
   customers,
   taxInvoices,
+  slips = [],
   config,
   onAddTaxInvoice,
+  onNavigateTab,
   osTheme
 }: TaxInvoiceViewProps) {
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const deferredSearchTerm = useDeferredValue(searchTerm);
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<TaxInvoice | null>(null);
-
-  // Form State
-  const [form, setForm] = useState<Partial<TaxInvoice>>({
-    taxNo: `TX-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-001`,
-    taxDate: new Date().toISOString().slice(0, 10),
-    customerName: customers[0]?.name || '',
-    productSummary: '화스너 및 배관자재 일체',
-    supplyAmount: 0,
-    taxAmount: 0,
-    totalAmount: 0,
-    isIssued: true,
-    memo: ''
+  // OkSale "기간별 세금계산서" state
+  const [vatType, setVatType] = useState('1'); // 1: 매출부가세, 2: 매입부가세
+  const [sumMethod, setSumMethod] = useState<'customer' | 'site'>('customer');
+  
+  // Default to current month
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   });
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().slice(0, 10);
+  });
+  
+  const [searchCustomer, setSearchCustomer] = useState('');
+  const [printSiteName, setPrintSiteName] = useState(true);
 
-  const filteredInvoices = useMemo(() => {
-    return taxInvoices.filter(tx => {
-      if (!deferredSearchTerm.trim()) return true;
-      const q = deferredSearchTerm.toLowerCase();
-      return (
-        tx.customerName.toLowerCase().includes(q) ||
-        tx.taxNo.toLowerCase().includes(q) ||
-        tx.productSummary.toLowerCase().includes(q)
-      );
-    });
-  }, [taxInvoices, deferredSearchTerm]);
+  const [aggregatedData, setAggregatedData] = useState<AggregatedTaxRow[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // KPI Calculations
-  const kpiData = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 7);
-    let monthlyIssuedCount = 0;
-    let monthlySupplyAmount = 0;
-    let monthlyTaxAmount = 0;
-    
-    taxInvoices.forEach(tx => {
-      if (tx.taxDate.startsWith(today)) {
-        monthlyIssuedCount++;
-        monthlySupplyAmount += tx.supplyAmount;
-        monthlyTaxAmount += tx.taxAmount;
-      }
-    });
-    return { monthlyIssuedCount, monthlySupplyAmount, monthlyTaxAmount };
-  }, [taxInvoices]);
+  // Print Modal State
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printInvoices, setPrintInvoices] = useState<any[]>([]);
 
-  const handleSupplyChange = (val: number) => {
-    const supply = Number(val) || 0;
-    const tax = Math.round(supply * 0.1);
-    setForm({
-      ...form,
-      supplyAmount: supply,
-      taxAmount: tax,
-      totalAmount: supply + tax
-    });
-  };
+  // 미수미지F4 Modal State
+  const [showReceivablesModal, setShowReceivablesModal] = useState(false);
+  const [receivablesData, setReceivablesData] = useState<{customerName: string; receivables: number; payables: number}[]>([]);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.customerName || !form.supplyAmount) {
-      alert('거래처와 공급가액을 입력해주세요.');
+  // View mode: 'aggregate' (슬립 기반 집계) | 'history' (기존 세금계산서 이력)
+  const [viewMode, setViewMode] = useState<'aggregate' | 'history'>('aggregate');
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 1. [검색F2] Action: Aggregate slips
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const handleSearch = useCallback(() => {
+    if (viewMode === 'history') {
+      // History mode: filter existing taxInvoices by date/customer
+      // (No aggregation needed, just display)
       return;
     }
-    await onAddTaxInvoice(form);
-    setIsModalOpen(false);
+
+    // Filter slips by date and type
+    // FIX: Case-insensitive comparison for slipType (bug: 'sales' vs 'SALES')
+    const targetSlips = slips.filter(s => {
+      if (s.slipDate < startDate || s.slipDate > endDate) return false;
+      
+      const normalizedType = s.slipType.toUpperCase();
+      if (vatType === '1' && normalizedType !== 'SALES') return false;
+      if (vatType === '2' && normalizedType !== 'PURCHASE') return false;
+      
+      if (searchCustomer.trim()) {
+        if (!s.customerName.includes(searchCustomer.trim())) return false;
+      }
+      return true;
+    });
+
+    // Group by Customer or Site
+    const grouped = new Map<string, AggregatedTaxRow>();
+    targetSlips.forEach(s => {
+      const key = sumMethod === 'customer' 
+        ? s.customerId 
+        : `${s.customerId}-${s.siteId || 'NONE'}`;
+      
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: key,
+          customerId: s.customerId,
+          customerName: s.customerName,
+          siteId: s.siteId,
+          siteName: s.siteName || '',
+          amount: 0,
+          tax: 0,
+          total: 0,
+          items: [],
+          productSummary: '',
+          checkReceipt: '영수',
+          slipCount: 0
+        });
+      }
+      
+      const g = grouped.get(key)!;
+      g.amount += s.totalSupplyAmount;
+      g.tax += s.totalTaxAmount;
+      g.total += s.totalAmount;
+      g.slipCount += 1;
+      if (s.items && s.items.length > 0) {
+        g.items.push(s.items[0].productName);
+      }
+    });
+
+    const result = Array.from(grouped.values()).map(g => {
+      const uniqueItems = [...new Set(g.items)];
+      const summary = uniqueItems.length > 1 
+        ? `${uniqueItems[0]} 외 ${uniqueItems.length - 1}건` 
+        : (uniqueItems[0] || '화스너 일체');
+      return { ...g, productSummary: summary };
+    });
+
+    // Sort by customerName
+    result.sort((a, b) => a.customerName.localeCompare(b.customerName));
+    
+    setAggregatedData(result);
+    setSelectedIds(new Set());
+  }, [slips, startDate, endDate, vatType, sumMethod, searchCustomer, viewMode]);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 2. Keyboard shortcuts
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        e.preventDefault();
+        handleSearch();
+      } else if (e.key === 'F11') {
+        e.preventDefault();
+        if (viewMode === 'aggregate') {
+          setSelectedIds(new Set(aggregatedData.map(d => d.id)));
+        } else {
+          setSelectedIds(new Set(filteredHistoryData.map(d => d.id)));
+        }
+      } else if (e.key === 'F12') {
+        e.preventDefault();
+        setSelectedIds(new Set());
+      } else if (e.key === 'F9') {
+        e.preventDefault();
+        handlePrintF9();
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        handleReceivablesF4();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleEsc();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aggregatedData, startDate, endDate, vatType, sumMethod, searchCustomer, viewMode, selectedIds]);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 3. Print F9 Action
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const handlePrintF9 = () => {
+    if (selectedIds.size === 0) {
+      alert('출력할 대상을 먼저 체크해주세요.');
+      return;
+    }
+    
+    if (viewMode === 'aggregate') {
+      // Map selected data to TaxInvoice format
+      const invoicesToPrint = Array.from(selectedIds).map(id => {
+        const d = aggregatedData.find(x => x.id === id);
+        if (!d) return null;
+        
+        const cust = customers.find(c => c.id === d.customerId);
+        
+        return {
+          taxNo: `TX-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${d.customerId.slice(-4)}`,
+          taxDate: endDate,
+          customerName: printSiteName && d.siteName ? `${d.customerName} (${d.siteName})` : d.customerName,
+          productSummary: d.productSummary,
+          supplyAmount: d.amount,
+          taxAmount: d.tax,
+          totalAmount: d.total,
+          isIssued: true,
+          checkReceipt: d.checkReceipt,
+          memo: '',
+          customer: cust
+        };
+      }).filter(Boolean);
+
+      setPrintInvoices(invoicesToPrint);
+      setIsPrintModalOpen(true);
+    } else {
+      // History mode: print selected existing tax invoices
+      const invoicesToPrint = Array.from(selectedIds).map(id => {
+        const ti = taxInvoices.find(x => x.id === id);
+        if (!ti) return null;
+        const cust = customers.find(c => c.id === ti.customerId || c.name === ti.customerName);
+        return {
+          ...ti,
+          customer: cust
+        };
+      }).filter(Boolean);
+
+      setPrintInvoices(invoicesToPrint);
+      setIsPrintModalOpen(true);
+    }
   };
 
-  const formatKRW = (num: number) => num.toLocaleString('ko-KR') + '원';
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 4. 미수미지F4 Action
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const handleReceivablesF4 = () => {
+    // Collect unique customer IDs from current data
+    const customerIds = viewMode === 'aggregate'
+      ? [...new Set(aggregatedData.map(d => d.customerId))]
+      : [...new Set(taxInvoices.filter(t => selectedIds.has(t.id)).map(t => t.customerId).filter(Boolean) as string[])];
+    
+    const data = customerIds.map(cid => {
+      const cust = customers.find(c => c.id === cid);
+      return {
+        customerName: cust?.name || '미지정',
+        receivables: cust?.receivables || 0,
+        payables: cust?.payables || 0
+      };
+    }).filter(d => d.receivables > 0 || d.payables! > 0);
+
+    // Sort by receivables descending
+    data.sort((a, b) => b.receivables - a.receivables);
+
+    setReceivablesData(data);
+    setShowReceivablesModal(true);
+  };
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 5. 종료Esc Action
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const handleEsc = () => {
+    if (showReceivablesModal) {
+      setShowReceivablesModal(false);
+      return;
+    }
+    if (onNavigateTab) {
+      onNavigateTab('slips');
+    }
+  };
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 6. Toggle checkReceipt for individual rows
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const toggleCheckReceipt = (id: string) => {
+    setAggregatedData(prev => prev.map(row => {
+      if (row.id === id) {
+        return { ...row, checkReceipt: row.checkReceipt === '영수' ? '청구' : '영수' };
+      }
+      return row;
+    }));
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedIds(newSet);
+  };
+
+  const formatKRW = (num: number) => num.toLocaleString('ko-KR');
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 7. Totals computation
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const totals = useMemo(() => {
+    if (viewMode === 'aggregate') {
+      return aggregatedData.reduce(
+        (acc, row) => ({
+          amount: acc.amount + row.amount,
+          tax: acc.tax + row.tax,
+          total: acc.total + row.total,
+          count: acc.count + row.slipCount
+        }),
+        { amount: 0, tax: 0, total: 0, count: 0 }
+      );
+    } else {
+      return filteredHistoryData.reduce(
+        (acc, row) => ({
+          amount: acc.amount + row.supplyAmount,
+          tax: acc.tax + row.taxAmount,
+          total: acc.total + row.totalAmount,
+          count: acc.count + 1
+        }),
+        { amount: 0, tax: 0, total: 0, count: 0 }
+      );
+    }
+  }, [aggregatedData, viewMode]);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 8. History (기존 세금계산서 이력) filtered data
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const filteredHistoryData = useMemo(() => {
+    if (viewMode !== 'history') return [];
+    return taxInvoices.filter(ti => {
+      // Filter by date
+      if (ti.taxDate < startDate || ti.taxDate > endDate) return false;
+      // Filter by vatType (taxKind)
+      if (vatType === '1' && ti.taxKind === '2') return false;
+      if (vatType === '2' && ti.taxKind === '1') return false;
+      // Filter by customer name
+      if (searchCustomer.trim()) {
+        if (!ti.customerName.includes(searchCustomer.trim())) return false;
+      }
+      return true;
+    }).sort((a, b) => a.taxDate.localeCompare(b.taxDate));
+  }, [taxInvoices, startDate, endDate, vatType, searchCustomer, viewMode]);
+
+  const themeBorder = osTheme === 'winxp-retro' ? 'border-[#808080]' : 'border-slate-300';
+  const themeHeaderBg = osTheme === 'winxp-retro' ? 'bg-[#ece9d8]' : 'bg-slate-100';
+
+  // Current display data depends on viewMode
+  const currentData = viewMode === 'aggregate' ? aggregatedData : filteredHistoryData;
+  const currentIds = viewMode === 'aggregate' 
+    ? aggregatedData.map(d => d.id) 
+    : filteredHistoryData.map(d => d.id);
 
   return (
-    <div className="space-y-4">
-      {/* KPI Dashboard Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-blue-600 text-[11px] font-bold mb-1 flex items-center gap-1"><FileDigit className="w-3.5 h-3.5" /> 당월 발행 건수</div>
-              <div className="text-2xl font-black text-blue-900 font-mono">{kpiData.monthlyIssuedCount}<span className="text-sm font-semibold text-blue-500 ml-1">건</span></div>
-              <div className="text-[10px] text-blue-500 mt-0.5">이번 달 총 발행</div>
-            </div>
-            <FileCheck className="w-9 h-9 text-blue-300" />
-          </div>
+    <div className={`h-[calc(100vh-140px)] flex flex-col ${osTheme === 'winxp-retro' ? 'bg-[#d4d0c8]' : 'bg-white'} border ${themeBorder} shadow-sm overflow-hidden text-sm`}>
+      {/* 1. Header Toolbar (OkSale Style) */}
+      <div className={`p-2 border-b ${themeBorder} ${themeHeaderBg} flex flex-wrap gap-x-4 gap-y-2 items-center text-xs font-semibold`}>
+        {/* Title / Logo simulation */}
+        <div className="flex items-center gap-1 mr-2 text-blue-800 font-bold">
+          <FileDigit className="w-4 h-4" />
+          기간별 세금계산서
         </div>
 
-        <div className="p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-emerald-600 text-[11px] font-bold mb-1 flex items-center gap-1"><DollarSign className="w-3.5 h-3.5" /> 당월 공급가액</div>
-              <div className="text-2xl font-black text-emerald-700 font-mono">{formatKRW(kpiData.monthlySupplyAmount)}</div>
-              <div className="text-[10px] text-emerald-500 mt-0.5">이번 달 공급가 합계</div>
-            </div>
-            <TrendingUp className="w-9 h-9 text-emerald-300" />
-          </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-700">부가세종류</span>
+          <select 
+            value={vatType} onChange={e => setVatType(e.target.value)}
+            className={`border ${themeBorder} px-1 py-0.5 bg-white`}
+          >
+            <option value="1">1 매출부가세</option>
+            <option value="2">2 매입부가세</option>
+          </select>
         </div>
 
-        <div className="p-4 bg-gradient-to-br from-amber-50 to-amber-100/50 border border-amber-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-amber-600 text-[11px] font-bold mb-1 flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> 당월 세액 합계</div>
-              <div className="text-2xl font-black text-amber-700 font-mono">{formatKRW(kpiData.monthlyTaxAmount)}</div>
-              <div className="text-[10px] text-amber-500 mt-0.5">이번 달 부가세(VAT) 합계</div>
-            </div>
-            <DollarSign className="w-9 h-9 text-amber-300" />
-          </div>
+        <div className="flex items-center gap-2 border-l border-r border-slate-300 px-3">
+          <span className="text-slate-700">합산방법</span>
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input type="radio" name="sumMethod" checked={sumMethod === 'customer'} onChange={() => setSumMethod('customer')} />
+            거래처별
+          </label>
+          <label className="flex items-center gap-1 cursor-pointer">
+            <input type="radio" name="sumMethod" checked={sumMethod === 'site'} onChange={() => setSumMethod('site')} />
+            현장별
+          </label>
         </div>
-      </div>
 
-      {/* Top Banner */}
-      <div className={`p-4 rounded-xl border shadow-sm ${
-        osTheme === 'winxp-retro'
-          ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
-          : 'bg-white border-slate-200'
-      }`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <FileCheck className="w-4 h-4 text-blue-600" />
-              <span>기간별 세금계산서 발행 및 합산 청구 관리 ({taxInvoices.length}건)</span>
-            </h2>
-            <p className="text-xs text-slate-500">
-              월말 거래처별 전표 합산 청구서 및 국세청 전자세금계산서 표준 서식 발행
-            </p>
-          </div>
+        <div className="flex items-center gap-1">
+          <label className="flex items-center gap-1 cursor-pointer text-blue-700">
+            <input type="checkbox" checked={printSiteName} onChange={e => setPrintSiteName(e.target.checked)} />
+            계산서현장명인쇄
+          </label>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="거래처/세금계산서번호 검색..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="pl-8 pr-8 py-1.5 border border-slate-300 rounded-lg bg-white text-xs w-64 focus:ring-1 focus:ring-blue-500 transition-colors"
-              />
-              {searchTerm && (
-                <button type="button" onClick={() => setSearchTerm('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"><X className="w-3.5 h-3.5" /></button>
-              )}
-            </div>
-
-            <button
-              onClick={() => {
-                setForm({
-                  taxNo: `TX-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(taxInvoices.length + 1).padStart(3, '0')}`,
-                  taxDate: new Date().toISOString().slice(0, 10),
-                  customerName: customers[0]?.name || '',
-                  productSummary: '화스너 및 배관자재 일체',
-                  supplyAmount: 0,
-                  taxAmount: 0,
-                  totalAmount: 0,
-                  isIssued: true,
-                  memo: ''
-                });
-                setIsModalOpen(true);
-              }}
-              className="px-3.5 py-2 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
-            >
-              <Plus className="w-4 h-4" /> 세금계산서 발행
-            </button>
-          </div>
+        {/* View mode toggle */}
+        <div className="flex items-center gap-1 border-l border-slate-300 pl-3">
+          <span className="text-slate-600 mr-1">조회</span>
+          <button
+            onClick={() => setViewMode('aggregate')}
+            className={`px-2 py-0.5 rounded-sm border text-[11px] ${viewMode === 'aggregate' ? 'bg-blue-600 text-white border-blue-700' : `bg-white ${themeBorder} hover:bg-slate-50`}`}
+          >
+            전표집계
+          </button>
+          <button
+            onClick={() => setViewMode('history')}
+            className={`px-2 py-0.5 rounded-sm border text-[11px] ${viewMode === 'history' ? 'bg-blue-600 text-white border-blue-700' : `bg-white ${themeBorder} hover:bg-slate-50`}`}
+          >
+            발행이력({taxInvoices.length.toLocaleString()})
+          </button>
         </div>
       </div>
 
-      {/* Tax Invoices Table */}
-      <div className={`rounded-xl border shadow-sm overflow-hidden ${
-        osTheme === 'winxp-retro'
-          ? 'bg-[#ece9d8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
-          : 'bg-white border-slate-200'
-      }`}>
-        <div className="overflow-x-auto" role="region" aria-label="세금계산서 목록">
-          <table className="w-full text-left text-xs border-collapse font-sans" role="grid">
-            <thead role="rowgroup">
-              <tr className="bg-slate-50/90 backdrop-blur-sm text-slate-500 font-semibold border-b border-slate-200 select-none whitespace-nowrap sticky top-0 z-10">
-                <th className="py-3 px-3 min-w-[100px]">작성일자</th>
-                <th className="py-3 px-3 min-w-[160px]">계산서 승인번호</th>
-                <th className="py-3 px-3 min-w-[150px]">공급받는자 (거래처)</th>
-                <th className="py-3 px-3 min-w-[180px]">품목 요약</th>
-                <th className="py-3 px-3 min-w-[110px] text-right">공급가액</th>
-                <th className="py-3 px-3 min-w-[100px] text-right">세액 (10%)</th>
-                <th className="py-3 px-3 min-w-[110px] text-right">합계금액</th>
-                <th className="py-3 px-3 min-w-[90px] text-center">발행상태</th>
-                <th className="py-3 px-3 min-w-[110px] text-center">인쇄 미리보기</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white" role="rowgroup">
-              {filteredInvoices.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400">
-                    발행된 세금계산서 내역이 없습니다.
+      <div className={`p-2 border-b ${themeBorder} ${themeHeaderBg} flex flex-wrap gap-4 items-center text-xs`}>
+        <div className="flex items-center gap-1">
+          <span className="font-semibold text-slate-700 w-10">기 간</span>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={`border ${themeBorder} px-1 py-0.5 w-28`} />
+          <span>-</span>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className={`border ${themeBorder} px-1 py-0.5 w-28`} />
+        </div>
+
+        <div className="flex items-center gap-1">
+          <span className="font-semibold text-slate-700">거래처명</span>
+          <input type="text" value={searchCustomer} onChange={e => setSearchCustomer(e.target.value)} className={`border ${themeBorder} px-2 py-0.5 w-40`} placeholder="거래처명 검색..." />
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto text-[11px] text-slate-500">
+          <span>전표 총 {slips.length.toLocaleString()}건</span>
+          <span className="text-slate-300">|</span>
+          <span>매출 {slips.filter(s => s.slipType.toUpperCase() === 'SALES').length.toLocaleString()}건</span>
+          <span className="text-slate-300">|</span>
+          <span>기존 세금계산서 {taxInvoices.length.toLocaleString()}건</span>
+        </div>
+      </div>
+
+      {/* 2. Data Grid */}
+      <div className="flex-1 overflow-auto bg-white relative">
+        <table className="w-full text-left text-xs border-collapse font-sans table-fixed">
+          <colgroup>
+            <col className="w-10" />
+            {viewMode === 'aggregate' && <col className="w-14" />}
+            <col className="w-[25%]" />
+            <col className="w-[20%]" />
+            <col className="w-28" />
+            <col className="w-24" />
+            <col className="w-28" />
+            {viewMode === 'aggregate' && <col className="w-16" />}
+          </colgroup>
+          <thead className={`sticky top-0 z-10 ${osTheme === 'winxp-retro' ? 'bg-[#ece9d8]' : 'bg-slate-100'}`}>
+            <tr className={`border-b ${themeBorder} text-center font-bold text-slate-700`}>
+              <th className={`border-r ${themeBorder} py-1.5`}><input type="checkbox" onChange={(e) => {
+                if (e.target.checked) setSelectedIds(new Set(currentIds));
+                else setSelectedIds(new Set());
+              }} checked={currentData.length > 0 && selectedIds.size === currentData.length} /></th>
+              {viewMode === 'aggregate' && <th className={`border-r ${themeBorder} px-1 py-1.5 text-[10px]`}>영수/청구</th>}
+              <th className={`border-r ${themeBorder} px-2 py-1.5`}>거래처명</th>
+              <th className={`border-r ${themeBorder} px-2 py-1.5`}>{viewMode === 'aggregate' ? '현장명' : '품목요약'}</th>
+              <th className={`border-r ${themeBorder} px-2 py-1.5`}>금 액</th>
+              <th className={`border-r ${themeBorder} px-2 py-1.5`}>세 액</th>
+              <th className={`${viewMode === 'aggregate' ? `border-r ${themeBorder}` : ''} px-2 py-1.5`}>합 계</th>
+              {viewMode === 'aggregate' && <th className={`px-1 py-1.5 text-[10px]`}>전표수</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {viewMode === 'aggregate' ? (
+              /* ━━━ Aggregate View ━━━ */
+              aggregatedData.map((row) => (
+                <tr 
+                  key={row.id} 
+                  className={`border-b border-slate-100 hover:bg-blue-50 cursor-pointer ${selectedIds.has(row.id) ? 'bg-blue-100' : ''}`}
+                  onClick={() => toggleSelect(row.id)}
+                >
+                  <td className={`border-r ${themeBorder} text-center py-1`} onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleSelect(row.id)} />
                   </td>
+                  <td className={`border-r ${themeBorder} text-center py-1`} onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => toggleCheckReceipt(row.id)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                        row.checkReceipt === '영수' 
+                          ? 'bg-blue-50 text-blue-700 border-blue-300' 
+                          : 'bg-orange-50 text-orange-700 border-orange-300'
+                      }`}
+                    >
+                      {row.checkReceipt}
+                    </button>
+                  </td>
+                  <td className={`border-r ${themeBorder} px-2 py-1 truncate ${selectedIds.has(row.id) ? 'font-bold text-blue-700' : ''}`} title={row.customerName}>
+                    {row.customerName}
+                  </td>
+                  <td className={`border-r ${themeBorder} px-2 py-1 truncate`} title={row.siteName}>{row.siteName}</td>
+                  <td className={`border-r ${themeBorder} px-2 py-1 text-right text-slate-700 font-mono tabular-nums`}>{formatKRW(row.amount)}</td>
+                  <td className={`border-r ${themeBorder} px-2 py-1 text-right text-slate-700 font-mono tabular-nums`}>{formatKRW(row.tax)}</td>
+                  <td className={`border-r ${themeBorder} px-2 py-1 text-right font-mono font-bold text-blue-700 tabular-nums`}>{formatKRW(row.total)}</td>
+                  <td className="px-1 py-1 text-center text-slate-500 text-[10px]">{row.slipCount}건</td>
                 </tr>
-              ) : (
-                filteredInvoices.map(tx => (
-                  <tr key={tx.id} role="row" className="hover:bg-blue-50/40 transition-colors whitespace-nowrap">
-                    <td className="py-2.5 px-3 font-mono text-slate-600">{tx.taxDate}</td>
-                    <td className="py-2.5 px-3 font-mono font-bold text-slate-800">{tx.taxNo}</td>
-                    <td className="py-2.5 px-3 font-semibold text-slate-900">{tx.customerName}</td>
-                    <td className="py-2.5 px-3 text-slate-600 truncate max-w-[200px]" title={tx.productSummary}>{tx.productSummary}</td>
-                    <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-700">
-                      {formatKRW(tx.supplyAmount)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-500">
-                      {formatKRW(tx.taxAmount)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700">
-                      {formatKRW(tx.totalAmount)}
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        {tx.isIssued ? '발행완료' : '작성중'}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
-                      <button
-                        onClick={() => setSelectedInvoice(tx)}
-                        className="px-2.5 py-1 rounded-md bg-white hover:bg-blue-50 text-blue-700 border border-slate-300 inline-flex items-center gap-1 shadow-sm transition-colors"
-                      >
-                        <Printer className="w-3.5 h-3.5" /> 미리보기
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+              ))
+            ) : (
+              /* ━━━ History View ━━━ */
+              filteredHistoryData.map((row) => (
+                <tr 
+                  key={row.id} 
+                  className={`border-b border-slate-100 hover:bg-blue-50 cursor-pointer ${selectedIds.has(row.id) ? 'bg-blue-100' : ''}`}
+                  onClick={() => toggleSelect(row.id)}
+                >
+                  <td className={`border-r ${themeBorder} text-center py-1`} onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleSelect(row.id)} />
+                  </td>
+                  <td className={`border-r ${themeBorder} px-2 py-1 truncate ${selectedIds.has(row.id) ? 'font-bold text-blue-700' : ''}`} title={row.customerName}>
+                    {row.customerName}
+                  </td>
+                  <td className={`border-r ${themeBorder} px-2 py-1 truncate`} title={row.productSummary}>{row.productSummary}</td>
+                  <td className={`border-r ${themeBorder} px-2 py-1 text-right text-slate-700 font-mono tabular-nums`}>{formatKRW(row.supplyAmount)}</td>
+                  <td className={`border-r ${themeBorder} px-2 py-1 text-right text-slate-700 font-mono tabular-nums`}>{formatKRW(row.taxAmount)}</td>
+                  <td className="px-2 py-1 text-right font-mono font-bold text-blue-700 tabular-nums">{formatKRW(row.totalAmount)}</td>
+                </tr>
+              ))
+            )}
+            {/* Empty padding rows for retro feel */}
+            {currentData.length < 15 && [...Array(15 - currentData.length)].map((_, i) => (
+              <tr key={`empty-${i}`} className="border-b border-slate-50 h-[26px]">
+                <td className={`border-r ${themeBorder}`}></td>
+                {viewMode === 'aggregate' && <td className={`border-r ${themeBorder}`}></td>}
+                <td className={`border-r ${themeBorder}`}></td>
+                <td className={`border-r ${themeBorder}`}></td>
+                <td className={`border-r ${themeBorder}`}></td>
+                <td className={`border-r ${themeBorder}`}></td>
+                <td className={viewMode === 'aggregate' ? `border-r ${themeBorder}` : ''}></td>
+                {viewMode === 'aggregate' && <td></td>}
+              </tr>
+            ))}
+          </tbody>
+          {/* ━━━ 합계 행 (Totals Row) ━━━ */}
+          <tfoot className={`sticky bottom-0 z-10 ${osTheme === 'winxp-retro' ? 'bg-[#e8e4d0]' : 'bg-blue-50'}`}>
+            <tr className={`border-t-2 ${themeBorder} text-xs font-bold`}>
+              <td className={`border-r ${themeBorder} text-center py-1.5 text-slate-500`}>합계</td>
+              {viewMode === 'aggregate' && <td className={`border-r ${themeBorder} text-center py-1.5 text-slate-500`}>{currentData.length}건</td>}
+              <td className={`border-r ${themeBorder} px-2 py-1.5 text-blue-800`}>
+                거래처 {viewMode === 'aggregate' ? aggregatedData.length : new Set(filteredHistoryData.map(d => d.customerName)).size}개사
+              </td>
+              <td className={`border-r ${themeBorder} px-2 py-1.5 text-slate-500`}>
+                {viewMode === 'aggregate' ? `전표 ${totals.count}건` : `${filteredHistoryData.length}건`}
+              </td>
+              <td className={`border-r ${themeBorder} px-2 py-1.5 text-right font-mono tabular-nums text-slate-800`}>{formatKRW(totals.amount)}</td>
+              <td className={`border-r ${themeBorder} px-2 py-1.5 text-right font-mono tabular-nums text-slate-800`}>{formatKRW(totals.tax)}</td>
+              <td className={`${viewMode === 'aggregate' ? `border-r ${themeBorder}` : ''} px-2 py-1.5 text-right font-mono tabular-nums text-blue-800 text-sm`}>{formatKRW(totals.total)}</td>
+              {viewMode === 'aggregate' && <td className="px-1 py-1.5 text-center text-slate-500 text-[10px]">{totals.count}건</td>}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* 3. Footer Buttons (OkSale Style) */}
+      <div className={`p-1 border-t ${themeBorder} ${themeHeaderBg} flex justify-between gap-1 text-xs font-bold`}>
+        <div className="flex gap-1">
+          <button onClick={() => {
+            if (viewMode === 'aggregate') setSelectedIds(new Set(aggregatedData.map(d => d.id)));
+            else setSelectedIds(new Set(filteredHistoryData.map(d => d.id)));
+          }} className={`px-3 py-1 bg-slate-200 border ${themeBorder} hover:bg-slate-300 rounded-sm`}>
+            전체선택F11
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className={`px-3 py-1 bg-slate-200 border ${themeBorder} hover:bg-slate-300 rounded-sm`}>
+            전체해제F12
+          </button>
+        </div>
+        
+        <div className="flex gap-1">
+          <button onClick={handleReceivablesF4} className={`px-3 py-1 bg-slate-200 border ${themeBorder} hover:bg-slate-300 rounded-sm`}>
+            미수미지F4
+          </button>
+          <button onClick={handlePrintF9} className={`px-3 py-1 bg-blue-100 border border-blue-400 text-blue-800 hover:bg-blue-200 rounded-sm`}>
+            계산서F9
+          </button>
+          <button className={`px-3 py-1 bg-slate-200 border ${themeBorder} hover:bg-slate-300 rounded-sm opacity-50 cursor-not-allowed`} title="명세서 인쇄 기능은 슬립 화면의 인쇄 기능을 이용하세요.">
+            명세서F8
+          </button>
+          <button onClick={handleSearch} className={`px-3 py-1 bg-slate-200 border ${themeBorder} hover:bg-slate-300 rounded-sm`}>
+            검색F2
+          </button>
+          <button onClick={handleEsc} className={`px-3 py-1 bg-slate-200 border ${themeBorder} hover:bg-slate-300 rounded-sm`}>
+            종료Esc
+          </button>
         </div>
       </div>
 
-      {/* Printable Preview Modal */}
-      {selectedInvoice && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full p-6 text-xs text-slate-900">
-            <div className="flex justify-between items-center pb-3 border-b mb-4">
-              <h3 className="font-bold text-sm text-red-700">
-                전자세금계산서 (공급자 보관용 / 공급받는자용)
+      {/* 4. Tax Print Modal */}
+      <TaxPrintModal
+        invoices={printInvoices}
+        config={config}
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+      />
+
+      {/* 5. 미수미지F4 Modal */}
+      {showReceivablesModal && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center" onClick={() => setShowReceivablesModal(false)}>
+          <div className="bg-white rounded-lg shadow-2xl w-[500px] max-h-[60vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-orange-500" />
+                미수금 / 미지급금 현황
               </h3>
-              <button
-                onClick={() => setSelectedInvoice(null)}
-                className="p-1 hover:bg-slate-100 rounded"
-              >
+              <button onClick={() => setShowReceivablesModal(false)} className="p-1 hover:bg-slate-100 rounded">
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            <div className="border-2 border-red-600 p-4 rounded text-xs space-y-4 font-sans">
-              <div className="text-center font-black text-xl text-red-700 tracking-widest border-b-2 border-red-600 pb-2">
-                세 금 계 산 서
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="border border-red-400 p-2">
-                  <div className="bg-red-50 text-red-800 font-bold px-1 py-0.5 mb-1">공급자</div>
-                  <div>등록번호: <strong>{config.companyInfo.bizNumber}</strong></div>
-                  <div>상호: {config.companyInfo.name} 대표: {config.companyInfo.ceo}</div>
-                  <div>사업장: {config.companyInfo.address}</div>
-                  <div>업태/종목: {config.companyInfo.bizType} / {config.companyInfo.bizItem}</div>
-                </div>
-                <div className="border border-blue-400 p-2">
-                  <div className="bg-blue-50 text-blue-800 font-bold px-1 py-0.5 mb-1">공급받는자</div>
-                  <div>상호: <strong>{selectedInvoice.customerName}</strong></div>
-                  <div>작성일자: {selectedInvoice.taxDate}</div>
-                  <div>승인번호: {selectedInvoice.taxNo}</div>
-                </div>
-              </div>
-
-              <div className="border border-slate-300 p-2 bg-slate-50 flex justify-between font-bold text-sm">
-                <span>합계금액:</span>
-                <span className="font-mono text-blue-800">{formatKRW(selectedInvoice.totalAmount)}</span>
-              </div>
-
-              <table className="w-full border-collapse border border-slate-300 text-center">
-                <thead className="bg-slate-100">
-                  <tr>
-                    <th className="border p-1.5">품목 및 규격</th>
-                    <th className="border p-1.5 text-right">공급가액</th>
-                    <th className="border p-1.5 text-right">세액</th>
+            <div className="flex-1 overflow-auto p-3">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 font-bold text-slate-600">
+                    <th className="px-3 py-2 text-left">거래처명</th>
+                    <th className="px-3 py-2 text-right">미수금(원)</th>
+                    <th className="px-3 py-2 text-right">미지급금(원)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td className="border p-2">{selectedInvoice.productSummary}</td>
-                    <td className="border p-2 text-right font-mono">{formatKRW(selectedInvoice.supplyAmount)}</td>
-                    <td className="border p-2 text-right font-mono">{formatKRW(selectedInvoice.taxAmount)}</td>
-                  </tr>
+                  {receivablesData.length > 0 ? receivablesData.map((d, i) => (
+                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="px-3 py-1.5 font-medium">{d.customerName}</td>
+                      <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${d.receivables > 0 ? 'text-red-600 font-bold' : 'text-slate-400'}`}>
+                        {d.receivables > 0 ? formatKRW(d.receivables) : '-'}
+                      </td>
+                      <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${d.payables > 0 ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>
+                        {d.payables > 0 ? formatKRW(d.payables) : '-'}
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={3} className="px-3 py-6 text-center text-slate-400">
+                        미수/미지급 데이터가 없습니다. 먼저 [검색F2]를 실행하세요.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
+                {receivablesData.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-300 font-bold bg-slate-50">
+                      <td className="px-3 py-2">합계</td>
+                      <td className="px-3 py-2 text-right font-mono text-red-700">
+                        {formatKRW(receivablesData.reduce((s, d) => s + d.receivables, 0))}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-blue-700">
+                        {formatKRW(receivablesData.reduce((s, d) => s + (d.payables || 0), 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
-
-              <div className="text-center text-[11px] text-slate-500 pt-2">
-                위 금액을 정히 영수(청구) 함.
-              </div>
             </div>
-
-            <div className="flex justify-end gap-2 pt-4">
-              <button
-                onClick={() => setSelectedInvoice(null)}
-                className="px-3 py-1.5 border rounded bg-white hover:bg-slate-50"
-              >
-                닫기
-              </button>
-              <button
-                onClick={() => window.print()}
-                className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1"
-              >
-                <Printer className="w-3.5 h-3.5" /> 인쇄하기
+            <div className="px-4 py-3 border-t border-slate-200 flex justify-end">
+              <button onClick={() => setShowReceivablesModal(false)} className="px-4 py-1.5 bg-slate-100 border border-slate-300 rounded text-xs font-medium hover:bg-slate-200">
+                닫기 (Esc)
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Tax Invoice Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg border shadow-xl max-w-md w-full p-4 text-xs">
-            <div className="flex justify-between items-center pb-3 border-b mb-3">
-              <h3 className="font-bold text-sm text-slate-800">세금계산서 신규 발행</h3>
-              <button onClick={() => setIsModalOpen(false)}>
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSave} className="space-y-3">
-              <div>
-                <label className="block font-semibold mb-1">거래처 선택</label>
-                <select
-                  value={form.customerName}
-                  onChange={e => setForm({ ...form, customerName: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border rounded bg-white"
-                >
-                  {customers.map(c => (
-                    <option key={c.id} value={c.name}>
-                      {c.name} ({c.bizNumber || '사업자미등록'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">품목 요약</label>
-                <input
-                  type="text"
-                  value={form.productSummary || ''}
-                  onChange={e => setForm({ ...form, productSummary: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border rounded bg-white"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">공급가액 (원)</label>
-                <input
-                  type="number"
-                  placeholder="공급가액 입력"
-                  value={form.supplyAmount || ''}
-                  onChange={e => handleSupplyChange(Number(e.target.value) || 0)}
-                  className="w-full px-2.5 py-1.5 border rounded bg-white text-right font-mono font-bold"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2 rounded">
-                <div>
-                  <span className="text-slate-500">세액(10%):</span>{' '}
-                  <strong className="font-mono">{formatKRW(form.taxAmount || 0)}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500">총 청구금액:</span>{' '}
-                  <strong className="font-mono text-blue-700">{formatKRW(form.totalAmount || 0)}</strong>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-3 py-1.5 rounded border"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold"
-                >
-                  발행 완료
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

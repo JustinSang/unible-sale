@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { SlipEntryView } from '@/components/SlipEntryView';
 import { ProductMasterView } from '@/components/ProductMasterView';
@@ -51,13 +51,14 @@ export default function App() {
     syncIntervalSec: 15,
     lastSyncTime: new Date().toISOString(),
     companyInfo: {
-      name: '동산화스너 (오케이유통 물류센터)',
-      bizNumber: '120-81-45678',
-      ceo: '홍길동',
-      address: '서울특별시 금천구 가산디지털1로 145 에이스하이엔드타워 3차 502호',
-      tel: '02-850-7000',
-      bizType: '제조 및 도소매',
-      bizItem: '볼트, 너트, 화스너 및 철물 일체'
+      name: '동산화스너',
+      bizNumber: '202-14-62327',
+      ceo: '상원준',
+      address: '고양시 덕양구 삼원로 73, 210호',
+      tel: '02)2267-1300',
+      fax: '02)2274-4386',
+      bizType: '도매',
+      bizItem: '볼트너트 철물외'
     }
   });
 
@@ -70,6 +71,9 @@ export default function App() {
   // Print Modal State
   const [isPrintOpen, setIsPrintOpen] = useState<boolean>(false);
   const [printSlip, setPrintSlip] = useState<Slip | null>(null);
+  // Ref to track isPrintOpen inside event handlers without causing useEffect deps change
+  const isPrintOpenRef = useRef(isPrintOpen);
+  useEffect(() => { isPrintOpenRef.current = isPrintOpen; }, [isPrintOpen]);
 
   // Fetch full data from server API (supports silent background sync)
   const fetchFullData = useCallback(async (silent = false) => {
@@ -86,7 +90,14 @@ export default function App() {
         setBills(data.bills || []);
         setTaxInvoices(data.taxInvoices || []);
         setCollections(data.collections || []);
-        if (data.config) setConfig(data.config);
+        if (data.config && Object.keys(data.config).length > 0) {
+          setConfig(prev => ({ 
+            ...prev, 
+            ...data.config,
+            companyInfo: { ...prev.companyInfo, ...(data.config.companyInfo || {}) },
+            printers: { ...prev.printers, ...(data.config.printers || {}) }
+          }));
+        }
         setLastSyncTime(new Date().toISOString());
         setOnline(true);
       }
@@ -104,44 +115,46 @@ export default function App() {
   }, [fetchFullData]);
 
   // Realtime Live Multi-Device Auto-Sync:
-  // 1) Periodic interval polling (every 8-15 seconds)
-  // 2) Window focus / visibility change sync
-  // 3) Online / offline event listeners
+  // Focus/visibility sync is SUPPRESSED when print modal is open to prevent
+  // alert() -> focus -> re-render -> modal disappearing in 0.1s
   useEffect(() => {
-    // 0) Server-Sent Events (SSE) Instant Real-Time Push Stream (< 100ms latency)
+    // 0) Server-Sent Events (SSE) Instant Real-Time Push Stream
     let eventSource: EventSource | null = null;
     try {
       eventSource = new EventSource('/api/events');
       eventSource.addEventListener('update', () => {
-        fetchFullData(true);
+        if (!isPrintOpenRef.current) fetchFullData(true);
       });
-      eventSource.onerror = () => {
-        // SSE will automatically attempt reconnect; polling serves as fallback
-      };
+      eventSource.onerror = () => {};
     } catch (e) {
       console.warn('SSE stream unavailable:', e);
     }
 
-    // 1) Periodic background polling fallback (every 8-15 seconds)
-    const intervalSec = Math.max(5, config.syncIntervalSec || 8);
+    // 1) Periodic background polling fallback (every 15 seconds, suppressed when modal is open)
+    const intervalSec = Math.max(15, config.syncIntervalSec || 15);
     const interval = setInterval(() => {
-      fetchFullData(true);
+      if (!isPrintOpenRef.current) fetchFullData(true);
     }, intervalSec * 1000);
 
-    // 2) Focus & visibility sync
+    // 2) Focus & visibility sync — DEBOUNCED and suppressed when modal open
+    let focusTimer: ReturnType<typeof setTimeout> | null = null;
     const handleFocus = () => {
-      fetchFullData(true);
+      if (isPrintOpenRef.current) return; // Don't sync while modal is open
+      if (focusTimer) clearTimeout(focusTimer);
+      focusTimer = setTimeout(() => fetchFullData(true), 2000); // 2s debounce
     };
     const handleVisibilityChange = () => {
+      if (isPrintOpenRef.current) return;
       if (document.visibilityState === 'visible') {
-        fetchFullData(true);
+        if (focusTimer) clearTimeout(focusTimer);
+        focusTimer = setTimeout(() => fetchFullData(true), 2000);
       }
     };
 
     // 3) Network online/offline
     const handleOnline = () => {
       setOnline(true);
-      fetchFullData(true);
+      if (!isPrintOpenRef.current) fetchFullData(true);
     };
     const handleOffline = () => {
       setOnline(false);
@@ -153,10 +166,9 @@ export default function App() {
     window.addEventListener('offline', handleOffline);
 
     return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
+      if (eventSource) eventSource.close();
       clearInterval(interval);
+      if (focusTimer) clearTimeout(focusTimer);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('online', handleOnline);
@@ -299,6 +311,8 @@ export default function App() {
   };
 
   // Slip Actions
+  // CRITICAL: Must use fetchFullData(true) (silent=true) to prevent
+  // isLoading=true from unmounting SlipEntryView and killing all its state
   const handleSaveSlip = async (slipData: Partial<Slip>, deliveryInfo?: any): Promise<Slip> => {
     const res = await fetch('/api/slips', {
       method: 'POST',
@@ -310,14 +324,15 @@ export default function App() {
       throw new Error(err.error || '전표 저장 실패');
     }
     const savedSlip: Slip = await res.json();
-    await fetchFullData();
+    await fetchFullData(true); // silent=true: prevents loading spinner from unmounting child components
     return savedSlip;
   };
 
   const handleDeleteSlip = async (id: string) => {
+    if (!confirm('이 전표를 삭제하시겠습니까?')) return;
     const res = await fetch(`/api/slips/${id}`, { method: 'DELETE' });
     if (res.ok) {
-      await fetchFullData();
+      await fetchFullData(true); // silent=true
     }
   };
 
@@ -470,8 +485,10 @@ export default function App() {
               <TaxInvoiceView
                 customers={customers}
                 taxInvoices={taxInvoices}
+                slips={slips}
                 config={config}
                 onAddTaxInvoice={handleAddTaxInvoice}
+                onNavigateTab={setCurrentTab}
                 osTheme={osTheme}
               />
             )}
@@ -529,6 +546,7 @@ export default function App() {
         slip={printSlip}
         config={config}
         customer={customers.find(c => c.id === printSlip?.customerId)}
+        customers={customers}
         isOpen={isPrintOpen}
         onClose={() => setIsPrintOpen(false)}
       />
@@ -537,7 +555,7 @@ export default function App() {
       <footer className="border-t border-slate-200 bg-white/80 py-2.5 px-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
           <div>
-            <strong>{config.companyInfo.name}</strong> &middot; 사업자번호: {config.companyInfo.bizNumber} &middot; 대표: {config.companyInfo.ceo} &middot; TEL: {config.companyInfo.tel}
+            <strong>{config?.companyInfo?.name || '동산화스너'}</strong> &middot; 사업자번호: {config?.companyInfo?.bizNumber || '-'} &middot; 대표: {config?.companyInfo?.ceo || '-'} &middot; TEL: {config?.companyInfo?.tel || '-'}
           </div>
           <div className="text-[11px] font-mono text-slate-400">
             UNIBLE SALE 클라우드 ERP &middot; Windows 10/11 & macOS Universal

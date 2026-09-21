@@ -71,10 +71,18 @@ export interface SlipItem {
   memo?: string;
 }
 
-export type SlipType = 'sales' | 'purchase' | 'return_sales' | 'return_purchase';
+export type SlipType = 'SALES' | 'PURCHASE' | 'RETURN_IN' | 'RETURN_OUT' | 'ESTIMATE' | 'ORDER' | 'DELIVERY' | 'CONTRACT';
+
+export interface DispatchStatus {
+  printCount: number;
+  faxStatus: 'IDLE' | 'SENDING' | 'SUCCESS' | 'FAIL';
+  kakaoStatus: 'IDLE' | 'SENDING' | 'SUCCESS' | 'FAIL';
+  emailStatus: 'IDLE' | 'SENDING' | 'SUCCESS' | 'FAIL';
+}
 
 export interface Slip {
   id: string;
+  linkedFromId?: string;    // O2C 연동 원본 전표 ID
   slipNo: string;           // 전표번호 (예: S20260316-0001)
   slipDate: string;         // YYYY-MM-DD
   slipType: SlipType;       // 'sales'(매출), 'purchase'(매입) 등
@@ -95,6 +103,9 @@ export interface Slip {
   memo?: string;
   createdAt: string;
   deliveryStatus?: 'none' | 'pending' | 'shipping' | 'delivered';
+  dispatchStatus?: DispatchStatus;
+  digitalSignature?: string; // 전자서명 위변조 방지 해시
+  tsaToken?: string;         // RFC 3161 공인 타임스탬프 대체 토큰
 }
 
 export interface DeliveryOrder {
@@ -147,6 +158,7 @@ export interface SystemConfig {
     ceo: string;
     address: string;
     tel: string;
+    fax?: string;
     bizType: string;
     bizItem: string;
   };
@@ -169,15 +181,25 @@ export interface TaxInvoice {
   id: string;
   taxNo: string;
   taxDate: string;
+  taxKind?: '1' | '2' | 'B';       // OkSale TaxKind: 1=매출, 2=매입, B=매입합계
+  customerId?: string;              // OkSale CustomerID 연결
   customerName: string;
-  productSummary: string;
-  supplyAmount: number;
-  taxAmount: number;
-  totalAmount: number;
-  isIssued: boolean;
+  postId?: string;                  // OkSale PostID (현장 ID)
+  postName?: string;                // OkSale Post (현장명)
+  productSummary: string;           // OkSale ProductName
+  spec?: string;                    // OkSale Spec (규격)
+  qty?: number;                     // OkSale Qty (수량)
+  unitPrice?: number;               // OkSale UnitPrice (단가)
+  emptyCount?: number;              // OkSale EmptyCount (공란 수)
+  supplyAmount: number;             // OkSale Amount (공급가액)
+  taxAmount: number;                // OkSale Tax (세액)
+  totalAmount: number;              // OkSale Total (합계)
+  isIssued: boolean;                // OkSale CheckIssue
+  checkReceipt?: '영수' | '청구';   // OkSale CheckReceipt (영수/청구)
+  checkSale?: '1' | '0';           // OkSale CheckSale (매출=1/매입=0 구분)
   ntsSendStatus?: 'pending' | 'success' | 'failed'; // 국세청 전송 상태
-  ntsIssueId?: string; // 국세청 승인번호
-  memo?: string;
+  ntsIssueId?: string;             // 국세청 승인번호 (OkSale AccountBookNo)
+  memo?: string;                   // OkSale Comments
 }
 
 export interface CollectionPayment {

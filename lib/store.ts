@@ -286,7 +286,7 @@ const INITIAL_SLIPS: Slip[] = [
     id: 's-1',
     slipNo: 'S20260316-0001',
     slipDate: '2026-03-16',
-    slipType: 'sales',
+    slipType: 'SALES',
     customerId: 'c-1',
     customerName: '(주)미동이엔씨',
     items: [
@@ -561,7 +561,7 @@ export function saveSlipTransaction(slipData: Partial<Slip>, deliveryInfo?: any)
     id: slipId,
     slipNo,
     slipDate: dateStr,
-    slipType: slipData.slipType || 'sales',
+    slipType: slipData.slipType || 'SALES',
     customerId: slipData.customerId || '',
     customerName,
     siteId: slipData.siteId,
@@ -589,16 +589,16 @@ export function saveSlipTransaction(slipData: Partial<Slip>, deliveryInfo?: any)
       let afterQty = beforeQty;
       let changeType: InventoryLog['changeType'] = 'out';
 
-      if (newSlip.slipType === 'sales') {
+      if (newSlip.slipType === 'SALES') {
         afterQty = beforeQty - item.qty;
         changeType = 'out';
-      } else if (newSlip.slipType === 'purchase') {
+      } else if (newSlip.slipType === 'PURCHASE') {
         afterQty = beforeQty + item.qty;
         changeType = 'in';
-      } else if (newSlip.slipType === 'return_sales') {
+      } else if (newSlip.slipType === 'RETURN_IN') {
         afterQty = beforeQty + item.qty;
         changeType = 'return';
-      } else if (newSlip.slipType === 'return_purchase') {
+      } else if (newSlip.slipType === 'RETURN_OUT') {
         afterQty = beforeQty - item.qty;
         changeType = 'out';
       }
@@ -616,14 +616,14 @@ export function saveSlipTransaction(slipData: Partial<Slip>, deliveryInfo?: any)
         beforeQty,
         afterQty,
         slipNo: newSlip.slipNo,
-        reason: `${newSlip.slipType === 'sales' ? '매출' : '매입'} 전표 처리: ${customerName}`,
+        reason: `${newSlip.slipType === 'SALES' ? '매출' : '매입'} 전표 처리: ${customerName}`,
         createdAt: now.toISOString()
       });
     }
   });
 
   // Customer Receivables update
-  if (customer && newSlip.slipType === 'sales') {
+  if (customer && newSlip.slipType === 'SALES') {
     customer.receivables = (customer.receivables || 0) + unpaidAmount;
   }
 

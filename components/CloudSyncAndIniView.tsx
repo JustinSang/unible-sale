@@ -282,6 +282,21 @@ export function CloudSyncAndIniView({
               />
             </div>
 
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">팩스번호</label>
+              <input
+                type="text"
+                value={formConfig.companyInfo.fax || ''}
+                onChange={e =>
+                  setFormConfig({
+                    ...formConfig,
+                    companyInfo: { ...formConfig.companyInfo, fax: e.target.value }
+                  })
+                }
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
+              />
+            </div>
+
             <div className="md:col-span-2">
               <label className="block font-semibold text-slate-700 mb-1">사업장 주소</label>
               <input

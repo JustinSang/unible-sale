@@ -12,7 +12,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     }
 
     // Rollback customer receivables
-    if (slip.slipType === 'sales') {
+    if (slip.slipType === 'SALES') {
       const cust = store.customers.find(c => c.id === slip.customerId);
       if (cust) {
         cust.receivables = Math.max(0, (cust.receivables || 0) - slip.unpaidAmount);
@@ -23,9 +23,9 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     slip.items.forEach(item => {
       const prod = store.products.find(p => p.id === item.productId || p.code === item.productCode);
       if (prod) {
-        if (slip.slipType === 'sales') {
+        if (slip.slipType === 'SALES') {
           prod.currentStock += item.qty;
-        } else if (slip.slipType === 'purchase') {
+        } else if (slip.slipType === 'PURCHASE') {
           prod.currentStock -= item.qty;
         }
       }

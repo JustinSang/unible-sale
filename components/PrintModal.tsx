@@ -14,7 +14,11 @@ interface PrintModalProps {
   onClose: () => void;
 }
 
-export function PrintModal({ slip, config, customer, customers = [], isOpen, onClose }: PrintModalProps) {
+// 이관 데이터에는 원본 입력 마스크(«___-__-_____»·«_011)492_-7864»)가 그대로 들어 있다 — 숫자가 없으면 빈칸, 있으면 밑줄만 뺀다.
+const cleanMask = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').trim() : '');
+
+export function PrintModal({ slip, config, customer: customerProp, customers = [], isOpen, onClose }: PrintModalProps) {
+  const customer = customerProp ? { ...customerProp, bizNumber: cleanMask(customerProp.bizNumber), tel: cleanMask(customerProp.tel), mobile: cleanMask(customerProp.mobile), fax: cleanMask(customerProp.fax) } : customerProp;
   const [printType, setPrintType] = useState<'statement' | 'receipt'>('statement');
   const [dispatchStatus, setDispatchStatus] = useState<'IDLE'|'SENDING'|'SUCCESS'|'FAIL'>('IDLE');
   // Inline toast notification — replaces all alert() calls to prevent
@@ -318,6 +322,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
     }
   };
 
+  const isQuote = slip.slipType === 'ESTIMATE' || slip.slipType === 'CONTRACT';
   const hidePriceColumns = slip.slipType === 'DELIVERY' || slip.slipType === 'ORDER';
 
   // Number to Korean currency text converter
@@ -471,7 +476,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                         <tr className="border-b border-slate-900">
                           <td className="w-[60px] border-r border-slate-900 p-1 text-center font-medium">Tel,Fax</td>
                           <td colSpan={2} className="p-1 text-center font-mono tracking-tighter">
-                            _{config.companyInfo.tel} &nbsp;,&nbsp; _{config.companyInfo.fax || ''}
+                            {config.companyInfo.tel} &nbsp;,&nbsp; {config.companyInfo.fax || ''}
                           </td>
                         </tr>
                         <tr>
@@ -909,7 +914,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                   {!hidePriceColumns ? (
                     <table className="w-full">
                       <tbody>
-                        {slip.showPrevBalance !== false && (
+                        {slip.showPrevBalance !== false && !isQuote && (
                           <tr>
                             <th className="py-0.5 text-left text-slate-500">전잔액:</th>
                             <td className="text-right font-mono font-bold">
@@ -923,13 +928,13 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                             {formatKRW(slip.totalAmount)}
                           </td>
                         </tr>
-                        <tr>
+                        {!isQuote && (<tr>
                           <th className="py-0.5 text-left text-slate-500">금회 입금액:</th>
                           <td className="text-right font-mono font-bold text-emerald-700">
                             {formatKRW(slip.paidAmount || 0)}
                           </td>
-                        </tr>
-                        {slip.showPrevBalance !== false && (
+                        </tr>)}
+                        {slip.showPrevBalance !== false && !isQuote && (
                           <tr className="border-t border-slate-300">
                             <th className="py-1 text-left font-bold">거래 후 잔액:</th>
                             <td className="text-right font-mono font-bold text-rose-700 text-xs">
@@ -955,17 +960,17 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
 
                 <div className="border border-slate-400 p-3 flex flex-col justify-between text-center">
                   <div className="text-xs font-semibold text-slate-700">
-                    위 품목을 정히 영수(인수) 함.
+                    {slip.slipType === 'ESTIMATE' ? '위와 같이 견적합니다.' : slip.slipType === 'CONTRACT' ? '위 품목을 수주합니다.' : '위 품목을 정히 영수(인수) 함.'}
                   </div>
                   <div className="flex justify-around items-end pt-6">
-                    <div>
+                    {!isQuote && (<div>
                       <span className="text-slate-500 text-[10px]">인수자 : </span>
                       <span className="border-b border-slate-400 px-6 py-0.5 font-bold">
                         (인 / 서명)
                       </span>
-                    </div>
+                    </div>)}
                     <div>
-                      <span className="text-slate-500 text-[10px]">납품자 : </span>
+                      <span className="text-slate-500 text-[10px]">{slip.slipType === 'ESTIMATE' ? '견적자' : slip.slipType === 'CONTRACT' ? '수주자' : '납품자'} : </span>
                       <span className="border-b border-slate-400 px-6 py-0.5 font-bold">
                         {config.companyInfo.ceo} (인)
                       </span>

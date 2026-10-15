@@ -90,6 +90,7 @@ async function migrate() {
     ['taxInvoices', 'tax_invoices'],
     ['deliveries', 'deliveries'],
     ['bills', 'bills'],
+    ['midongOrders', 'midong_orders'], // 미동이엔씨 파트너 포털 자재마감 품목 내역(scripts/import_midong_orders.py)
     ['collections', 'collections'],
     ['inventoryLogs', 'inventory_logs']
   ];

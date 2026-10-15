@@ -15,6 +15,7 @@ import { MdbAnalyzerView } from '@/components/MdbAnalyzerView';
 import { CloudSyncAndIniView } from '@/components/CloudSyncAndIniView';
 import { PrintModal } from '@/components/PrintModal';
 import { PdfBundleModal } from '@/components/PdfBundleModal';
+import { MidongOrdersView } from '@/components/MidongOrdersView';
 import { AdminPinModal } from '@/components/AdminPinModal';
 import type {
   Product,
@@ -592,6 +593,8 @@ export default function App() {
                 osTheme={osTheme}
               />
             )}
+
+            {currentTab === 'midong' && <MidongOrdersView slips={slips} onSlipsChanged={() => fetchFullData(true)} />}
 
             {currentTab === 'ledgers' && (
               <LedgerReportsView

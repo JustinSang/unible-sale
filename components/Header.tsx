@@ -66,6 +66,7 @@ export function Header({
     { id: 'inventory', label: '재고수불부', icon: Database, hotkey: 'F9' },
     { id: 'mdb_tool', label: 'MDB 데이터도구', icon: HardDrive, hotkey: 'F10' },
     { id: 'ledgers', label: '장부 / 집계표', icon: BookOpen, hotkey: 'F12' },
+    { id: 'midong', label: '미동 발주내역', icon: Globe, hotkey: '' },
     { id: 'ini_sync', label: '환경설정 / 동기화', icon: Sliders, hotkey: 'F11' }
   ];
 
@@ -212,9 +213,9 @@ export function Header({
               >
                 <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
                 <span>{tab.label}</span>
-                <span className="text-[10px] font-mono opacity-50 px-1 py-0.2 bg-slate-200 rounded">
+                {tab.hotkey && <span className="text-[10px] font-mono opacity-50 px-1 py-0.2 bg-slate-200 rounded">
                   {tab.hotkey}
-                </span>
+                </span>}
               </button>
             );
           })}

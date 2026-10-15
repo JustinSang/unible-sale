@@ -209,3 +209,20 @@ alter table public.customer_prices disable row level security;
 
 create table if not exists public.system_config ("id" text primary key, "config" jsonb);
 alter table public.system_config disable row level security;
+
+-- (주)미동이엔씨 파트너 포털(partner.midong.com) 자재마감 «월별 품목 내역» — 발주·입고 줄 단위 원장(scripts/import_midong_orders.py로 적재)
+create table if not exists public.midong_orders ("id" text primary key);
+alter table public.midong_orders add column if not exists "closeYm" text;
+alter table public.midong_orders add column if not exists "rno" text;
+alter table public.midong_orders add column if not exists "site" text;
+alter table public.midong_orders add column if not exists "name" text;
+alter table public.midong_orders add column if not exists "spec" text;
+alter table public.midong_orders add column if not exists "unit" text;
+alter table public.midong_orders add column if not exists "ordQty" numeric;
+alter table public.midong_orders add column if not exists "price" numeric;
+alter table public.midong_orders add column if not exists "ordAmt" numeric;
+alter table public.midong_orders add column if not exists "inQty" numeric;
+alter table public.midong_orders add column if not exists "inAmt" numeric;
+alter table public.midong_orders add column if not exists "inDate" text;
+alter table public.midong_orders add column if not exists "closeDate" text;
+alter table public.midong_orders disable row level security;

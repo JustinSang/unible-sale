@@ -15,7 +15,7 @@ interface LedgerReportsViewProps {
   osTheme: OSTheme;
 }
 
-type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook';
+type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'daily', label: '일계표' },
@@ -27,7 +27,9 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'vat', label: '부가세 집계' },
   { id: 'pricelist', label: '단가표' },
   { id: 'yearend', label: '연말 이월' },
-  { id: 'phonebook', label: '전화번호부' }
+  { id: 'phonebook', label: '전화번호부' },
+  { id: 'custsum', label: '거래처별 집계표' },
+  { id: 'query', label: '거래내역 조회' }
 ];
 
 type VatRow = { sSupply: number; sTax: number; sCnt: number; pSupply: number; pTax: number; pCnt: number };
@@ -312,6 +314,58 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   }, [taxInvoices, year]);
 
   // ───────── 단가표 ─────────
+  // ───────── 거래처별 집계표(원본 CustomerSummaryPrintTable: 전기이월·매입·매입세·지급·매출·매출세·수금·잔액) ─────────
+  // 집계식은 원본 호출자 추적 실패로 미확인 — 열 의미에 맞춘 추정 구현(잔액=전기이월+매출−수금−매입+지급, 할인은 잔액에만 반영).
+  const custSum = useMemo(() => {
+    const eff = withOpening(slips, collections, opening);
+    const before = netBetween(eff.slips, eff.collections, '0000-00-00', from);
+    const upTo = netBetween(eff.slips, eff.collections, '0000-00-00', to + '~');
+    type R = { id: string; name: string; before: number; buy: number; buyVat: number; pay: number; sale: number; saleVat: number; rcp: number; bal: number };
+    const m = new Map<string, R>();
+    const get = (id: string, name: string) => { if (!m.has(id)) m.set(id, { id, name, before: 0, buy: 0, buyVat: 0, pay: 0, sale: 0, saleVat: 0, rcp: 0, bal: 0 }); return m.get(id)!; };
+    slips.forEach(sl => {
+      if (sl.slipDate < from || sl.slipDate > to) return;
+      const k = kindOf(sl); const r = get(sl.customerId, sl.customerName);
+      if (k === 'sales') { r.sale += sl.totalAmount || 0; r.saleVat += sl.totalTaxAmount || 0; r.rcp += sl.paidAmount || 0; }
+      else if (k === 'salesReturn') { r.sale -= sl.totalAmount || 0; r.saleVat -= sl.totalTaxAmount || 0; }
+      else if (k === 'purchase') { r.buy += sl.totalAmount || 0; r.buyVat += sl.totalTaxAmount || 0; r.pay += sl.paidAmount || 0; }
+      else if (k === 'purchaseReturn') { r.buy -= sl.totalAmount || 0; r.buyVat -= sl.totalTaxAmount || 0; }
+    });
+    collections.forEach(c => {
+      if (c.date < from || c.date > to) return;
+      const r = get(c.customerId, c.customerName);
+      if (c.type === 'collection') r.rcp += c.amount; else r.pay += c.amount;
+    });
+    const rows = [...m.values()].map(r => {
+      const b = (before.get(r.id) || 0) + (eff.base.get(r.id) || 0);
+      return { ...r, before: b, bal: (upTo.get(r.id) || 0) + (eff.base.get(r.id) || 0) };
+    }).filter(r => r.before || r.buy || r.pay || r.sale || r.rcp || r.bal).sort((a, b) => b.sale - a.sale || b.buy - a.buy);
+    const tot = rows.reduce((t, r) => ({ before: t.before + r.before, buy: t.buy + r.buy, buyVat: t.buyVat + r.buyVat, pay: t.pay + r.pay, sale: t.sale + r.sale, saleVat: t.saleVat + r.saleVat, rcp: t.rcp + r.rcp, bal: t.bal + r.bal }), { before: 0, buy: 0, buyVat: 0, pay: 0, sale: 0, saleVat: 0, rcp: 0, bal: 0 });
+    return { rows, tot };
+  }, [slips, collections, opening, from, to]);
+
+  // ───────── 거래내역 조회(원본 SalesQuery·PostBook·SiteBook 인쇄표 열: 일자·구분·품목·규격·단위·수량·단가·금액·세액·거래처·현장) ─────────
+  const [qKind, setQKind] = useState<string>('all');
+  const [qCust, setQCust] = useState<string>('');
+  const [qSite, setQSite] = useState<string>('');
+  const [qProd, setQProd] = useState<string>('');
+  const KIND_NAME: Record<string, string> = { sales: '매출', purchase: '매입', salesReturn: '매출반품', purchaseReturn: '매입반품', other: '기타' };
+  const queryRows = useMemo(() => {
+    const rows: { date: string; kind: string; cust: string; site: string; name: string; spec: string; unit: string; qty: number; price: number; amount: number; tax: number; no: string }[] = [];
+    slips.forEach(sl => {
+      if (sl.slipDate < from || sl.slipDate > to) return;
+      const k = kindOf(sl); if (k === 'other') return;
+      if (qKind !== 'all' && qKind !== k) return;
+      if (qCust && !sl.customerName.includes(qCust)) return;
+      if (qSite && !(sl.siteName || '').includes(qSite)) return;
+      (sl.items || []).forEach(it => {
+        if (qProd && !`${it.productName} ${it.spec}`.includes(qProd)) return;
+        rows.push({ date: sl.slipDate, kind: KIND_NAME[k], cust: sl.customerName, site: sl.siteName || '', name: it.productName, spec: it.spec || '', unit: it.unit || '', qty: it.qty, price: it.unitPrice, amount: it.supplyAmount, tax: it.taxAmount, no: sl.slipNo });
+      });
+    });
+    return rows.sort((a, b) => a.date.localeCompare(b.date) || a.no.localeCompare(b.no));
+  }, [slips, from, to, qKind, qCust, qSite, qProd]);
+
   const [priceCustomer, setPriceCustomer] = useState<string>('');
   const [priceQuery, setPriceQuery] = useState<string>('');
   const priceCustomers = useMemo(
@@ -819,6 +873,62 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
             </tbody>
           </table>
           {phonebook.length > 300 && <p className="text-[11px] text-slate-500">300건까지 표시했습니다. 검색으로 좁히거나 CSV로 전체를 받으세요.</p>}
+        </div>
+      )}
+
+      {section === 'custsum' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">기간</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span>~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span className="text-slate-500">잔액: 미수금 +, 미지급금 −</span>
+            <button onClick={() => downloadCsv(`거래처별집계표_${from}_${to}.csv`, [['거래처', '전기이월', '매입', '매입세액', '지급', '매출', '매출세액', '수금', '잔액'], ...custSum.rows.map(r => [r.name, r.before, r.buy, r.buyVat, r.pay, r.sale, r.saleVat, r.rcp, r.bal]), ['합계', custSum.tot.before, custSum.tot.buy, custSum.tot.buyVat, custSum.tot.pay, custSum.tot.sale, custSum.tot.saleVat, custSum.tot.rcp, custSum.tot.bal]])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead><tr>{['거래처', '전기이월', '매입', '매입세액', '지급', '매출', '매출세액', '수금', '잔액'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {custSum.rows.slice(0, 500).map(r => (
+                  <tr key={r.id}><td className={td}>{r.name}</td><td className={num}>{won(r.before)}</td><td className={num}>{won(r.buy)}</td><td className={num}>{won(r.buyVat)}</td><td className={num}>{won(r.pay)}</td><td className={num}>{won(r.sale)}</td><td className={num}>{won(r.saleVat)}</td><td className={num}>{won(r.rcp)}</td><td className={`${num} font-bold`}>{won(r.bal)}</td></tr>
+                ))}
+                <tr className="bg-slate-50 font-bold"><td className={td}>합계</td><td className={num}>{won(custSum.tot.before)}</td><td className={num}>{won(custSum.tot.buy)}</td><td className={num}>{won(custSum.tot.buyVat)}</td><td className={num}>{won(custSum.tot.pay)}</td><td className={num}>{won(custSum.tot.sale)}</td><td className={num}>{won(custSum.tot.saleVat)}</td><td className={num}>{won(custSum.tot.rcp)}</td><td className={num}>{won(custSum.tot.bal)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-slate-500">열 구성은 원본 거래처별 집계표 인쇄표를 따랐습니다. 반품은 매출·매입에서 차감하고, 잔액은 할인까지 반영한 거래처 순증감입니다(집계식은 원본 추적 전까지 추정).</p>
+        </div>
+      )}
+
+      {section === 'query' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">기간</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span>~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <select value={qKind} onChange={e => setQKind(e.target.value)} className="border border-slate-300 rounded px-2 py-1">
+              <option value="all">전체 구분</option><option value="sales">매출</option><option value="purchase">매입</option><option value="salesReturn">매출반품</option><option value="purchaseReturn">매입반품</option>
+            </select>
+            <input value={qCust} onChange={e => setQCust(e.target.value)} placeholder="거래처" className="border border-slate-300 rounded px-2 py-1 w-28" />
+            <input value={qSite} onChange={e => setQSite(e.target.value)} placeholder="현장" className="border border-slate-300 rounded px-2 py-1 w-28" />
+            <input value={qProd} onChange={e => setQProd(e.target.value)} placeholder="품명·규격" className="border border-slate-300 rounded px-2 py-1 w-28" />
+            <button onClick={() => downloadCsv(`거래내역_${from}_${to}.csv`, [['일자', '구분', '거래처', '현장', '품명', '규격', '단위', '수량', '단가', '금액', '세액', '전표번호'], ...queryRows.map(r => [r.date, r.kind, r.cust, r.site, r.name, r.spec, r.unit, r.qty, r.price, r.amount, r.tax, r.no])])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead><tr>{['일자', '구분', '거래처', '현장', '품명', '규격', '단위', '수량', '단가', '금액', '세액'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {queryRows.slice(0, 1000).map((r, i) => (
+                  <tr key={i}><td className={td}>{r.date}</td><td className={td}>{r.kind}</td><td className={td}>{r.cust}</td><td className={td}>{r.site}</td><td className={td}>{r.name}</td><td className={td}>{r.spec}</td><td className={td}>{r.unit}</td><td className={num}>{r.qty}</td><td className={num}>{won(r.price)}</td><td className={num}>{won(r.amount)}</td><td className={num}>{r.tax ? won(r.tax) : ''}</td></tr>
+                ))}
+                <tr className="bg-slate-50 font-bold"><td className={td} colSpan={9}>합계 ({queryRows.length.toLocaleString('ko-KR')}줄)</td><td className={num}>{won(queryRows.reduce((a, r) => a + r.amount, 0))}</td><td className={num}>{won(queryRows.reduce((a, r) => a + r.tax, 0))}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          {queryRows.length > 1000 && <p className="text-[11px] text-slate-500">처음 1,000줄만 표시했습니다 — 전체는 CSV로 받으세요.</p>}
+          <p className="text-[11px] text-slate-500">원본 판매조회·전기장·현장별장부 인쇄표(일자·구분·품목·규격·단위·수량·단가·금액·세액)를 한 화면으로 모았습니다. 견적·발주·납품과 품목 줄이 없는 전표(이관된 반품 전표 등)는 제외합니다.</p>
         </div>
       )}
     </div>

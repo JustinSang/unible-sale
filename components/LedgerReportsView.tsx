@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Download } from 'lucide-react';
+import type { LedgerRow } from '@/lib/ledgerRules';
 import { monthlyNet, quarterSummary, customerLedger, netBetween, monthlyStock, withOpening } from '@/lib/ledgerRules';
 import type { Slip, CollectionPayment, Customer, TaxInvoice, OSTheme, Product } from '@/types';
 
@@ -15,7 +16,7 @@ interface LedgerReportsViewProps {
   osTheme: OSTheme;
 }
 
-type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query' | 'taxbook' | 'prodlist' | 'custlist';
+type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query' | 'dailydetail' | 'taxbook' | 'prodlist' | 'custlist';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'daily', label: '일계표' },
@@ -30,6 +31,7 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'phonebook', label: '전화번호부' },
   { id: 'custsum', label: '거래처별 집계표' },
   { id: 'query', label: '거래내역 조회' },
+  { id: 'dailydetail', label: '일계 상세' },
   { id: 'taxbook', label: '세금계산서 장부' },
   { id: 'prodlist', label: '품목·재고 현황' },
   { id: 'custlist', label: '거래처 목록' }
@@ -401,6 +403,20 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
     const q = clQ.trim();
     return customers.filter(c => !q || `${c.name} ${c.ceo} ${c.bizNumber} ${c.tel}`.includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   }, [customers, clQ]);
+
+  // ───────── 일계 상세(원본 DailyDetailBalancePrintTable: 일자·구분·거래처·품명·규격·단위·수량·단가·금액·세액·잔액) ─────────
+  // 그날 거래가 있는 거래처마다 거래처 원장 규칙으로 줄과 거래 직후 잔액을 구한다(집계식은 원본 호출자 추적 실패로 추정).
+  const dailyDetail = useMemo(() => {
+    const eff = withOpening(slips, collections, opening);
+    const ids = new Map<string, string>();
+    slips.forEach(sl => { if (sl.slipDate === day && kindOf(sl) !== 'other') ids.set(sl.customerId, sl.customerName); });
+    collections.forEach(c => { if (c.date === day) ids.set(c.customerId, c.customerName); });
+    const rows: (LedgerRow & { cust: string })[] = [];
+    [...ids.entries()].sort((a, b) => a[1].localeCompare(b[1], 'ko')).forEach(([id, name]) => {
+      customerLedger(eff.slips as any, eff.collections, id, day, day, eff.base.get(id) || 0).rows.forEach(r => rows.push({ ...r, cust: name }));
+    });
+    return rows;
+  }, [slips, collections, opening, day]);
 
   const [priceCustomer, setPriceCustomer] = useState<string>('');
   const [priceQuery, setPriceQuery] = useState<string>('');
@@ -1038,6 +1054,28 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
             </table>
           </div>
           {custList.length > 500 && <p className="text-[11px] text-slate-500">500건까지 표시했습니다. 검색으로 좁히거나 CSV로 전체를 받으세요.</p>}
+        </div>
+      )}
+
+      {section === 'dailydetail' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">일자</label>
+            <input type="date" value={day} onChange={e => setDay(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span className="text-slate-500">잔액: 거래 직후 거래처 잔액(미수금 +, 미지급금 −)</span>
+            <button onClick={() => downloadCsv(`일계상세_${day}.csv`, [['일자', '구분', '거래처', '품명', '규격', '단위', '수량', '단가', '금액', '세액', '잔액'], ...dailyDetail.map(r => [r.date, r.kind, r.cust, r.productName, r.spec, r.unit, r.qty ?? '', r.price ?? '', r.amount, r.tax, r.balance])])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead><tr>{['일자', '구분', '거래처', '품명', '규격', '단위', '수량', '단가', '금액', '세액', '잔액'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {dailyDetail.slice(0, 1000).map((r, i) => (
+                  <tr key={i}><td className={td}>{r.date}</td><td className={td}>{r.kind}</td><td className={td}>{r.cust}</td><td className={td}>{r.productName}</td><td className={td}>{r.spec}</td><td className={td}>{r.unit}</td><td className={num}>{r.qty ?? ''}</td><td className={num}>{r.price != null ? won(r.price) : ''}</td><td className={num}>{won(r.amount)}</td><td className={num}>{r.tax ? won(r.tax) : ''}</td><td className={`${num} font-bold`}>{won(r.balance)}</td></tr>
+                ))}
+                {dailyDetail.length === 0 && <tr><td className={td} colSpan={11}>이 날짜에는 거래가 없습니다.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

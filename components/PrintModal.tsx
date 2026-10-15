@@ -2,6 +2,7 @@
 
 import { displayProductName } from '@/lib/productName';
 import { OriginalSlipForm } from './OriginalSlipForm';
+import { OriginalFormReport } from './OriginalFormReport';
 import React, { useState } from 'react';
 import { Printer, X, FileText, Receipt } from 'lucide-react';
 import type { Slip, SystemConfig, Customer } from '@/types';
@@ -395,7 +396,7 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                 }`}
               >
                 <FileText className="w-3.5 h-3.5" />
-                <span>원본 양식 (2단·16줄)</span>
+                <span>원본 양식</span>
               </button>
               <button
                 onClick={() => setPrintType('receipt')}
@@ -431,7 +432,27 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
         {/* Printable Document Body */}
         <div className="p-6 overflow-y-auto flex-1 bg-neutral-100/50 flex justify-center print:bg-white print:p-0 print:overflow-visible print:block print:h-auto print:static">
           <div id="pdf-printable-area" className="flex justify-center w-full">
-          {slip.slipType === 'ORDER' ? (
+          {printType === 'original' ? (
+            slip.slipType === 'ESTIMATE' || slip.slipType === 'ORDER' ? (
+            <OriginalFormReport
+              slip={slip}
+              kind={slip.slipType === 'ESTIMATE' ? 'estimate' : 'order'}
+              own={{ name: ci.name, ceo: ci.ceo, bizNumber: ci.bizNumber, address: ci.address, tel: ci.tel, fax: ci.fax, bizType: ci.bizType, bizItem: ci.bizItem }}
+              counterpart={slip.customerName}
+              seal="/seal-real.png"
+            />
+            ) : (
+            <OriginalSlipForm
+              slip={slip}
+              supplier={isInbound ? custParty : ownParty}
+              buyer={isInbound ? ownParty : custParty}
+              kindLabel={({ SALES: '매출', PURCHASE: '매입', RETURN_IN: '반입', RETURN_OUT: '반출', ESTIMATE: '견적', ORDER: '발주', DELIVERY: '납품', CONTRACT: '수주' } as Record<string, string>)[slip.slipType] || ''}
+              seal={isInbound ? '' : '/seal-real.png'}
+              prevBalance={slip.prevReceivables}
+              showPrev={slip.showPrevBalance !== false}
+            />
+            )
+          ) : slip.slipType === 'ORDER' ? (
             /* Order (발주서) Layout matching the requested image */
             <div className="w-[210mm] min-h-[297mm] bg-white p-8 shadow-sm border border-slate-300 print:border-none print:shadow-none print:p-0 print:w-full text-slate-900 text-[12px] font-sans">
               {/* Title */}
@@ -719,16 +740,6 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                 </tbody>
               </table>
             </div>
-          ) : printType === 'original' ? (
-            <OriginalSlipForm
-              slip={slip}
-              supplier={isInbound ? custParty : ownParty}
-              buyer={isInbound ? ownParty : custParty}
-              kindLabel={({ SALES: '매출', PURCHASE: '매입', RETURN_IN: '반입', RETURN_OUT: '반출', ESTIMATE: '견적', ORDER: '발주', DELIVERY: '납품', CONTRACT: '수주' } as Record<string, string>)[slip.slipType] || ''}
-              seal={isInbound ? '' : '/seal-real.png'}
-              prevBalance={slip.prevReceivables}
-              showPrev={slip.showPrevBalance !== false}
-            />
           ) : printType === 'statement' ? (
             /* Standard A4 Transaction Statement */
             <div className="w-[210mm] min-h-[297mm] bg-white p-8 shadow-sm border border-slate-300 print:border-none print:shadow-none print:p-0 print:w-full text-slate-900 text-[11px] font-sans">

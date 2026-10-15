@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Download } from 'lucide-react';
 import type { LedgerRow } from '@/lib/ledgerRules';
+import { RptPrintModal, type RptRow } from '@/components/RptReportPrint';
 import { monthlyNet, quarterSummary, customerLedger, netBetween, monthlyStock, withOpening } from '@/lib/ledgerRules';
 import type { Slip, CollectionPayment, Customer, TaxInvoice, OSTheme, Product, Bill } from '@/types';
 
@@ -643,6 +644,37 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
     return rows.filter(r => !q || [r.name, r.who, r.tel, r.mobile, r.fax, r.email].some(v => v && String(v).toLowerCase().includes(q)));
   }, [customers, phoneQuery]);
 
+  // ───────── 원본 양식 인쇄(RptReportPrint) — 화면의 줄을 원본 .rpt 필드 이름으로 바꿔 복원한 좌표에 찍는다 ─────────
+  const [rptOpen, setRptOpen] = useState(false);
+  // 이관 데이터의 전화번호에는 원본 입력 마스크(«__02)2267-1300»·«--»)가 남아 있다 — 숫자가 없으면 빈칸, 있으면 밑줄과 앞쪽 기호만 뺀다.
+  const cleanTel = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').replace(/^[-)\s]+/, '').trim() : '');
+  const rptSpec = useMemo((): { key: string; title: string; rows: RptRow[]; params: Record<string, string> } | null => {
+    const co = '동산화스너';
+    const base = { FromDate: from, ToDate: to, UserCompanyName: co };
+    switch (section) {
+      case 'cashbook': return { key: 'CashBook', title: '현금출납부', params: { ...base, CustomerName: '', AccountName: '현금' }, rows: [{ AccountDate: '', Comments: '전기 이월', Balance: cashbook.opening }, ...cashbook.rows.map(r => ({ AccountDate: r.date, Comments: r.desc, CreditAmount: r.inAmt, DebitAmount: r.outAmt, Balance: r.bal }))] };
+      case 'ledger': { const nm = (ledgerOptions.find(o => o.id === ledger.id)?.name) || ''; return { key: 'CustomerBook', title: '거래처별원장', params: { ...base, CustomerCompanyName: nm }, rows: [{ ProductName: '전기 이월', Balance: ledger.opening }, ...ledger.rows.map(r => ({ SlipDate: r.date, Kind: r.kind, ProductName: r.productName, Spec: r.spec, Qty: r.qty ?? '', Price: r.price ?? '', Amount: r.amount, Tax: r.tax, Balance: r.balance, Comments: r.comments }))] }; }
+      case 'custsum': return { key: 'CustomerSummary', title: '거래현황집계', params: base, rows: custSum.rows.map(r => ({ CustomerName: r.name, BeforeBalance: r.before, BuyingAmount: r.buy, BuyingVatAmount: r.buyVat, PaymentAmount: r.pay, SalesAmount: r.sale, SalesVatAmount: r.saleVat, ReceiptAmount: r.rcp, Balance: r.bal })) };
+      case 'query': return { key: 'SalesQuery', title: '매입매출장', params: base, rows: queryRows.map(r => ({ SlipDate: r.date, Kind: r.kind, ProductName: r.name, Spec: r.spec, Unit: r.unit, Qty: r.qty, Price: r.price, Amount: r.amount })) };
+      case 'taxbook': return { key: 'TaxBook', title: '세금계산서조회', params: base, rows: taxBook.rows.map(t => ({ TaxDate: t.taxDate, TaxKind: t.taxKind === '2' || t.taxKind === 'B' ? '매입' : '매출', CustomerName: t.customerName, Post: t.postName || '', ProductName: t.productSummary, Amount: t.supplyAmount, Tax: t.taxAmount, Total: t.totalAmount })) };
+      case 'dailydetail': { const h = dailyDetail.head; return { key: 'DailyDetailBalance', title: '일계 상세', params: { ...base, FromDate: day, ToDate: day, Title: '일계 상세', SalesTotal: won(h.salesTot), Cost: won(h.costTot), Benefit: won(h.profitTot), BenefitRate: `${h.rate.toFixed(1)}`, Receipt: won(h.rcp), BuyingTotal: won(h.buyTot), BuyingTax: won(h.tax), SalesTax: '', Payment: won(h.paid) }, rows: dailyDetail.rows.map(r => ({ SlipDate: r.date, Kind: r.kind, ProductName: `${r.cust} / ${r.productName}`, Spec: r.spec, Qty: r.qty ?? '', Price: r.price ?? '', Amount: r.amount, Cost: r.cost ?? '', Benefit: r.profit ?? '', Rate: r.profit != null && r.amount ? ((r.profit / r.amount) * 100).toFixed(1) : '' })) }; }
+      case 'subulsum': return { key: 'SubulSummary', title: '상품수불집계표', params: base, rows: subulSum.rows.map(r => ({ ProductName: r[0], Unit: r[1], Spec: r[2], BeforeStockQty: r[3], BuyingQty: r[4], ReturnSalesQty: r[5], SalesQty: r[6], ReturnBuyingQty: r[7], StockQty: r[8], PurchasePrice: r[9], StockAmount: r[10] })) };
+      case 'prodsum': return { key: 'SubulSummaryAmount', title: '상품매입매출집계표', params: { ...base, FromProductsName: '', ToProductsName: '' }, rows: prodSum.rows.map((r, i) => ({ No: i + 1, ProductName: r[0], Spec: r[1], Unit: r[2], BuyingQty: r[3], ReturnSalesQty: r[4], SalesQty: r[5], ReturnBuyingQty: r[6], BuyingAmount: r[7], ReturnSalesAmount: r[8], SalesAmount: r[9], ReturnBuyingAmount: r[10] })) };
+      case 'subulbook': return { key: 'Subul', title: '상품수불장', params: base, rows: subulBook.rows.map(r => ({ strDate: r[0], ProductName: r[2], Spec: r[3], BuyingQty: r[4], SalesQty: r[5], Price: r[6], Amount: r[7], StockQty: r[8] })) };
+      case 'pricelist': return { key: 'PriceList', title: '단가표', params: base, rows: priceRows.rows.map(r => ({ ProductName: r.name, Spec: r.spec, Price: r.p1 })) };
+      case 'prodlist': return { key: 'Gaego', title: '상품재고리스트', params: base, rows: prodList.rows.map(r => ({ ProductName: r.name, Spec: r.spec, Unit: r.unit, Qty: r.stock, Price: r.cost, Amount: r.value })) };
+      case 'custlist': return { key: 'Customer', title: '거래처리스트', params: base, rows: custList.map(c => ({ CustomerName: c.name, Post: c.post || '', OwnerName: c.ceo, ChargerName: c.contactName || '', TelephoneNo1: cleanTel(c.tel), TelephoneNo2: cleanTel(c.tel2 || c.mobile), FaxNo: cleanTel(c.fax), Address1Zip: c.zip || '', Address1: c.address })) };
+      case 'phonebook': return { key: 'Telephones', title: '전화번호부', params: base, rows: phonebook.map(r => ({ Name: r.name, OwnerName: r.who || '', TelephoneNo1: cleanTel(r.tel), TelephoneNo2: cleanTel(r.mobile), FaxNo: cleanTel(r.fax), Comments: r.email || '' })) };
+      case 'rcpquery': return { key: 'AccountBook', title: '수금지급조회', params: base, rows: rcpQuery.rows.map(r => ({ AccountDate: r[0], AccountKind: r[1], CreditAmount: r[2], DebitAmount: r[3], Comments: r[4] })) };
+      case 'billbook': {
+        const list = (bills || []).filter(b => (bbKind === 'all' || b.billKind === bbKind) && b.dueDate >= from && b.dueDate <= to).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+        const pay = bbKind === '지급어음';
+        return { key: pay ? 'PaymentBill' : 'ReceiptBill', title: pay ? '지급어음집계표' : '받은어음집계표', params: base, rows: list.map(b => ({ BillNo: b.billNo, BillStatusModeName: b.status, BillAmount: b.amount, ReceiptCustomerName: b.customerName, PayCustomerName: pay ? b.customerName : b.payCustomerName || '', ReceiptDate: b.receiptDate || '', IssueDate: b.issueDate, FallDate: b.dueDate, PayBank: pay ? b.payBank || b.bank : b.bank, PayDate: b.payDate || '' })) };
+      }
+      default: return null;
+    }
+  }, [section, from, to, day, cashbook, ledger, ledgerOptions, custSum, queryRows, taxBook, dailyDetail, subulSum, prodSum, subulBook, priceRows, prodList, custList, phonebook, rcpQuery, bills, bbKind]);
+
   const yearOptions = yearEnd.years.length ? yearEnd.years : [year];
 
   return (
@@ -668,6 +700,14 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
           </button>
         ))}
       </div>
+
+      {rptSpec && (
+        <div className="flex items-center gap-2 text-xs">
+          <button onClick={() => setRptOpen(true)} className="flex items-center gap-1 border border-blue-300 text-blue-700 rounded px-2 py-1 hover:bg-blue-50 font-semibold"><BookOpen className="w-3 h-3" /> 원본 양식 인쇄 미리보기</button>
+          <span className="text-slate-500">원본 오케이세일 «{rptSpec.title}» 양식(좌표·글꼴 복원)으로 {rptSpec.rows.length.toLocaleString('ko-KR')}줄을 찍습니다.</span>
+        </div>
+      )}
+      {rptOpen && rptSpec && <RptPrintModal layoutKey={rptSpec.key} title={rptSpec.title} rows={rptSpec.rows.slice(0, 3000)} total={rptSpec.rows.length} params={rptSpec.params} onClose={() => setRptOpen(false)} />}
 
       {section === 'daily' && (
         <div className="space-y-3">

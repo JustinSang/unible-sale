@@ -16,13 +16,14 @@ interface PrintModalProps {
   customer?: Customer;
   customers?: Customer[];
   isOpen: boolean;
+  onDispatched?: (slipId: string, status: any) => void; // 발송 성공을 화면 목록에 반영
   onClose: () => void;
 }
 
 // 이관 데이터에는 원본 입력 마스크(«___-__-_____»·«_011)492_-7864»)가 그대로 들어 있다 — 숫자가 없으면 빈칸, 있으면 밑줄만 뺀다.
 const cleanMask = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').trim() : '');
 
-export function PrintModal({ slip: slipProp, config, customer: customerProp, customers = [], isOpen, onClose }: PrintModalProps) {
+export function PrintModal({ slip: slipProp, config, customer: customerProp, customers = [], isOpen, onClose, onDispatched }: PrintModalProps) {
   // 이관 전표는 유형 표기가 'sales'·'return_sales'처럼 섞여 있어 표준형(SALES·RETURN_IN…)으로 맞춘 뒤 쓴다.
   const slip = slipProp ? { ...slipProp, slipType: normSlipType(slipProp.slipType) } : slipProp;
   const customer = customerProp ? { ...customerProp, bizNumber: cleanMask(customerProp.bizNumber), tel: cleanMask(customerProp.tel), mobile: cleanMask(customerProp.mobile), fax: cleanMask(customerProp.fax) } : customerProp;
@@ -104,6 +105,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
       const data = await res.json();
       if (data.success) {
         setDispatchStatus('SUCCESS');
+        if (data.dispatchStatus) onDispatched?.(slip.id, data.dispatchStatus); // 서버가 저장한 발송 이력을 목록에 반영
         const channelLabel = channel === 'FAX' ? '팩스' : channel === 'KAKAO' ? '카카오톡' : '이메일';
         showToast(`✅ ${channelLabel} 발송 성공: ${data.message || '요청이 접수되었습니다.'}`, 'success', 5000);
       } else {

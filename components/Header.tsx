@@ -35,6 +35,8 @@ interface HeaderProps {
   totalProducts: number;
   totalCustomers: number;
   totalReceivables: number;
+  adminMode?: boolean;
+  onToggleAdmin?: () => void;
 }
 
 export function Header({
@@ -48,7 +50,9 @@ export function Header({
   online,
   totalProducts,
   totalCustomers,
-  totalReceivables
+  totalReceivables,
+  adminMode,
+  onToggleAdmin
 }: HeaderProps) {
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState<boolean>(false);
   const tabs = [
@@ -133,6 +137,16 @@ export function Header({
               <Globe className="w-3.5 h-3.5 text-amber-300" />
               <span>인터넷 접속</span>
             </button>
+
+            {onToggleAdmin && (
+              <button
+                onClick={onToggleAdmin}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border active:scale-95 transition-all ${adminMode ? 'bg-amber-500 border-amber-600 text-white shadow-xs' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                title={adminMode ? '관리자 모드 켜짐 — 발송된 전표도 수정·삭제할 수 있습니다. 누르면 끕니다.' : '관리자 모드 — 발송된 전표를 고치거나 지울 때 켭니다(PIN).'}
+              >
+                <span>{adminMode ? '🔓 관리자 모드 켜짐' : '🔒 관리자 모드'}</span>
+              </button>
+            )}
 
             <button
               onClick={onManualSync}

@@ -112,6 +112,9 @@ export interface DispatchStatus {
   faxStatus: 'IDLE' | 'SENDING' | 'SUCCESS' | 'FAIL';
   kakaoStatus: 'IDLE' | 'SENDING' | 'SUCCESS' | 'FAIL';
   emailStatus: 'IDLE' | 'SENDING' | 'SUCCESS' | 'FAIL';
+  faxAt?: string; faxTo?: string;     // 마지막 팩스 발송 시각·번호(발송 이력)
+  emailAt?: string; emailTo?: string;
+  kakaoAt?: string; kakaoTo?: string;
 }
 
 export interface Slip {
@@ -186,6 +189,7 @@ export interface SystemConfig {
   };
   cloudSyncEnabled: boolean;
   syncIntervalSec: number;
+  adminPinHash?: string; // 관리자 모드 PIN의 SHA-256(발송된 전표 수정·삭제 허용)
   openingBalances?: { asOf: string; byCustomer: Record<string, number> }; // 기초 미수(+)·미지급(−) 잔액 — 도입 시점 입력
   lastSyncTime: string;
   companyInfo: {

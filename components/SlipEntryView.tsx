@@ -1,5 +1,6 @@
 'use client';
 
+import { isDispatched } from '@/lib/adminPin';
 import React, { useState, useMemo, useDeferredValue, useRef, useEffect } from 'react';
 import { displayProductName } from '@/lib/productName';
 import {
@@ -28,6 +29,7 @@ interface SlipEntryViewProps {
   onDeleteSlip: (id: string) => Promise<void>;
   onOpenPrint: (slip: Slip) => void;
   onBundlePdf?: (slips: Slip[]) => void;
+  adminMode?: boolean; // 관리자 모드: 발송·배송된 전표도 수정·삭제 가능
   onNavigateTab: (tab: string) => void;
   onQuickAddCustomer?: (c: Partial<Customer>) => Promise<Customer | undefined>;
   osTheme: OSTheme;
@@ -41,6 +43,7 @@ export function SlipEntryView({
   onDeleteSlip,
   onOpenPrint,
   onBundlePdf,
+  adminMode = false,
   onNavigateTab,
   onQuickAddCustomer,
   osTheme
@@ -78,7 +81,7 @@ export function SlipEntryView({
   const [dispatchStatus, setDispatchStatus] = useState<DispatchStatus | undefined>();
   
   // UX Enhancement: 스마트 재고 전표 보호 (원장 잠금)
-  const isLocked = editingSlipId !== null && (
+  const isLocked = !adminMode && editingSlipId !== null && (
     deliveryStatus === 'delivered' || 
     deliveryStatus === 'shipping' || 
     (dispatchStatus && (dispatchStatus.faxStatus === 'SUCCESS' || dispatchStatus.emailStatus === 'SUCCESS' || dispatchStatus.kakaoStatus === 'SUCCESS'))
@@ -721,6 +724,10 @@ export function SlipEntryView({
 
   // Save Slip
   const handleSubmitSlip = async () => {
+    if (isLocked) {
+      alert('이미 발송(팩스·이메일·카카오)되었거나 배송 중인 전표입니다.\n고치려면 위쪽 «🔒 관리자 모드»를 켜세요.');
+      return;
+    }
     if (!selectedCustomerId) {
       alert('거래처를 선택해주세요.');
       return;
@@ -1066,7 +1073,7 @@ export function SlipEntryView({
                       <td className="py-1.5 px-2 text-right font-mono text-slate-600">
                         {hideAmounts ? '-' : taxAmt.toLocaleString('ko-KR')}
                       </td>
-                      <td className="py-1.5 px-2 text-center font-mono text-slate-500">#{slip.slipNo}</td>
+                      <td className="py-1.5 px-2 text-center font-mono text-slate-500">#{slip.slipNo}{isDispatched(slip.dispatchStatus) && <span className="ml-1 px-1 rounded bg-emerald-100 text-emerald-700 text-[10px] font-sans font-bold" title={[slip.dispatchStatus?.faxStatus === 'SUCCESS' ? `팩스 ${slip.dispatchStatus?.faxAt?.slice(0, 16).replace('T', ' ') || ''} ${slip.dispatchStatus?.faxTo || ''}` : '', slip.dispatchStatus?.emailStatus === 'SUCCESS' ? '이메일' : '', slip.dispatchStatus?.kakaoStatus === 'SUCCESS' ? '카카오' : ''].filter(Boolean).join(' · ')}>발송됨</span>}</td>
                       <td className="py-1.5 px-2 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button 
@@ -1084,9 +1091,9 @@ export function SlipEntryView({
                             <Printer className="w-3.5 h-3.5" />
                           </button>
                           <button 
-                            onClick={(e) => { e.stopPropagation(); onDeleteSlip(slip.id); }} 
-                            className="p-1 text-rose-500 hover:bg-rose-100 rounded" 
-                            title="전표 삭제"
+                            onClick={(e) => { e.stopPropagation(); if (!adminMode && isDispatched(slip.dispatchStatus)) { alert('발송된 전표는 삭제할 수 없습니다.\n관리자 모드를 켜면 삭제할 수 있습니다.'); return; } onDeleteSlip(slip.id); }} 
+                            className={`p-1 rounded ${!adminMode && isDispatched(slip.dispatchStatus) ? 'text-slate-300' : 'text-rose-500 hover:bg-rose-100'}`} 
+                            title={!adminMode && isDispatched(slip.dispatchStatus) ? '발송된 전표 — 관리자 모드에서만 삭제' : '전표 삭제'}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

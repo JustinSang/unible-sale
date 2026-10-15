@@ -46,6 +46,17 @@ export async function POST(request: Request) {
       }
     }
 
+    // 발송 성공 시 전표에 «발송됨» 이력 저장(마지막 발송 시각·상대). 채널별로 보존한다.
+    const markSent = async (ch: 'FAX' | 'EMAIL' | 'KAKAO') => {
+      const prev = slip.dispatchStatus || { printCount: 0, faxStatus: 'IDLE', kakaoStatus: 'IDLE', emailStatus: 'IDLE' };
+      const at = new Date().toISOString();
+      const next = ch === 'FAX' ? { ...prev, faxStatus: 'SUCCESS', faxAt: at, faxTo: targetContact }
+        : ch === 'EMAIL' ? { ...prev, emailStatus: 'SUCCESS', emailAt: at, emailTo: targetContact }
+        : { ...prev, kakaoStatus: 'SUCCESS', kakaoAt: at, kakaoTo: targetContact };
+      await supabase.from('slips').update({ dispatchStatus: next }).eq('id', slipId);
+      return next;
+    };
+
     // 2. Format Currency Helper
     const formatKRW = (num: number) => num.toLocaleString('ko-KR') + '원';
 
@@ -104,7 +115,8 @@ export async function POST(request: Request) {
           html: emailHtml,
         });
         
-        return NextResponse.json({ success: true, message: '이메일이 성공적으로 발송되었습니다.', data });
+        const dispatchStatus = await markSent('EMAIL');
+        return NextResponse.json({ success: true, message: '이메일이 성공적으로 발송되었습니다.', data, dispatchStatus });
       } catch (error: any) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
       }
@@ -128,7 +140,8 @@ export async function POST(request: Request) {
           text
         });
 
-        return NextResponse.json({ success: true, message: '카카오톡/문자가 성공적으로 접수되었습니다.', data: response });
+        const dispatchStatus = await markSent('KAKAO');
+        return NextResponse.json({ success: true, message: '카카오톡/문자가 성공적으로 접수되었습니다.', data: response, dispatchStatus });
       } catch (error: any) {
         return NextResponse.json({ success: false, error: error.message || '문자 발송 실패' }, { status: 500 });
       }
@@ -188,7 +201,8 @@ export async function POST(request: Request) {
         // Clean up temp file
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
 
-        return NextResponse.json({ success: true, message: '팩스 발송이 성공적으로 접수되었습니다.', data: sendResult });
+        const dispatchStatus = await markSent('FAX');
+        return NextResponse.json({ success: true, message: '팩스 발송이 성공적으로 접수되었습니다.', data: sendResult, dispatchStatus });
       } catch (error: any) {
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
         return NextResponse.json({ success: false, error: error.message || error.code || '팩스 전송 실패' }, { status: 500 });

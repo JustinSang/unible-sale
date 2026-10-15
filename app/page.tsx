@@ -15,6 +15,7 @@ import { MdbAnalyzerView } from '@/components/MdbAnalyzerView';
 import { CloudSyncAndIniView } from '@/components/CloudSyncAndIniView';
 import { PrintModal } from '@/components/PrintModal';
 import { PdfBundleModal } from '@/components/PdfBundleModal';
+import { AdminPinModal } from '@/components/AdminPinModal';
 import type {
   Product,
   Customer,
@@ -74,6 +75,19 @@ export default function App() {
   const [isPrintOpen, setIsPrintOpen] = useState<boolean>(false);
   const [printSlip, setPrintSlip] = useState<Slip | null>(null);
   const [bundleSlips, setBundleSlips] = useState<Slip[] | null>(null);
+  // 관리자 모드(발송된 전표도 수정·삭제 가능) — 이 브라우저 탭에서만 유지(sessionStorage)
+  const [adminMode, setAdminMode] = useState<boolean>(false);
+  const [pinOpen, setPinOpen] = useState<boolean>(false);
+  useEffect(() => { try { if (sessionStorage.getItem('oksale.admin') === '1') setAdminMode(true); } catch { /* 저장소 없음 */ } }, []);
+  const turnAdmin = (on: boolean) => { setAdminMode(on); try { on ? sessionStorage.setItem('oksale.admin', '1') : sessionStorage.removeItem('oksale.admin'); } catch { /* 무시 */ } };
+  const handleToggleAdmin = () => { if (adminMode) turnAdmin(false); else setPinOpen(true); };
+  const handleSetPin = async (hash: string) => {
+    const cur = await fetch('/api/config').then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+    await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cur, adminPinHash: hash }) });
+    setConfig(prev => ({ ...prev, adminPinHash: hash }));
+  };
+  // 발송(팩스·이메일·카카오) 성공을 화면 전표 목록에도 바로 반영
+  const handleDispatched = (slipId: string, ds: any) => setSlips(prev => prev.map(s => (s.id === slipId ? { ...s, dispatchStatus: ds } : s)));
   // Ref to track isPrintOpen inside event handlers without causing useEffect deps change
   const isPrintOpenRef = useRef(isPrintOpen);
   useEffect(() => { isPrintOpenRef.current = isPrintOpen; }, [isPrintOpen]);
@@ -463,6 +477,8 @@ export default function App() {
       <Header
         currentTab={currentTab}
         onTabChange={setCurrentTab}
+        adminMode={adminMode}
+        onToggleAdmin={handleToggleAdmin}
         osTheme={osTheme}
         onThemeChange={setOsTheme}
         isSyncing={isSyncing}
@@ -492,6 +508,7 @@ export default function App() {
                 onDeleteSlip={handleDeleteSlip}
                 onOpenPrint={handleOpenPrint}
                 onBundlePdf={setBundleSlips}
+                adminMode={adminMode}
                 onNavigateTab={setCurrentTab}
                 onQuickAddCustomer={handleQuickAddCustomer}
                 osTheme={osTheme}
@@ -606,6 +623,7 @@ export default function App() {
       </main>
 
       {/* Print Document Modal */}
+      {pinOpen && <AdminPinModal pinHash={config.adminPinHash} onSetPin={handleSetPin} onUnlocked={() => { turnAdmin(true); setPinOpen(false); }} onClose={() => setPinOpen(false)} />}
       {bundleSlips && <PdfBundleModal slips={bundleSlips} config={config} customers={customers} onClose={() => setBundleSlips(null)} />}
       <PrintModal
         slip={printSlip}
@@ -614,6 +632,7 @@ export default function App() {
         customers={customers}
         isOpen={isPrintOpen}
         onClose={() => setIsPrintOpen(false)}
+        onDispatched={handleDispatched}
       />
 
       {/* Footer Info Bar */}

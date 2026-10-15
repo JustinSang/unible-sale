@@ -36,6 +36,7 @@ async function migrate() {
         address: '고양시 덕양구 삼원로 73, 210호',
         tel: '02-2267-1300',
         fax: '02-2274-4386',
+        email: 'dsfastener@daum.net',
         bizType: '도매',
         bizItem: '볼트너트 철물외'
       }

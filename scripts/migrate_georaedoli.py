@@ -247,13 +247,15 @@ def main():
         "syncIntervalSec": 15,
         "lastSyncTime": datetime.now().isoformat(),
         "companyInfo": {
-            "name": "동산화스너 (UNIBLE SALE 클라우드 본사)",
-            "bizNumber": "120-81-45678",
-            "ceo": "홍길동",
-            "address": "서울특별시 금천구 가산디지털1로 145 에이스하이엔드타워 3차 502호",
-            "tel": "02-850-7000",
-            "bizType": "제조 및 도소매",
-            "bizItem": "볼트, 너트, 화스너 및 철물 일체"
+            "name": "동산화스너",
+            "bizNumber": "202-14-62327",
+            "ceo": "상원준",
+            "address": "고양시 덕양구 삼원로 73, 210호",
+            "tel": "02-2267-1300",
+            "fax": "02-2274-4386",
+            "email": "dsfastener@daum.net",
+            "bizType": "도매",
+            "bizItem": "볼트너트 철물외"
         }
     }
 

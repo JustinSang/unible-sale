@@ -323,6 +323,9 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
   };
 
   const isQuote = slip.slipType === 'ESTIMATE' || slip.slipType === 'CONTRACT';
+  const ci = config.companyInfo;
+  const ownParty = { own: true, name: ci.name, ceo: ci.ceo, bizNumber: ci.bizNumber, address: ci.address, bizType: ci.bizType, bizItem: ci.bizItem, tel: ci.tel, site: '', manager: '' };
+  const custParty = { own: false, name: slip.customerName, ceo: customer?.ceo || '', bizNumber: customer?.bizNumber || '', address: slip.siteAddress || customer?.address || '', bizType: customer?.bizType || '', bizItem: customer?.bizItem || '', tel: customer?.tel || customer?.mobile || '', site: slip.siteName || '', manager: slip.siteManager || '' };
   const hidePriceColumns = slip.slipType === 'DELIVERY' || slip.slipType === 'ORDER';
 
   // Number to Korean currency text converter
@@ -467,7 +470,7 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                         <tr className="border-b border-slate-900">
                           <td className="w-[60px] border-r border-slate-900 p-1 text-center font-medium">상 &nbsp; 호</td>
                           <td className="p-1 text-center font-bold text-[13px]">{config.companyInfo.name}</td>
-                          <td className="w-[70px] border-l border-slate-900 p-1 text-center text-[12px]">{config.companyInfo.ceo}</td>
+                          <td className="w-[70px] border-l border-slate-900 p-1 text-center text-[12px] relative">{config.companyInfo.ceo}<img src="/seal-real.png" alt="인" className="absolute right-0 top-1/2 -translate-y-1/2 w-7 h-7 mix-blend-multiply" /></td>
                         </tr>
                         <tr className="border-b border-slate-900">
                           <td className="w-[60px] border-r border-slate-900 p-1 text-center font-medium">주 &nbsp; 소</td>
@@ -575,7 +578,7 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                       <th className="border-r border-b border-slate-900 py-1 bg-slate-50 text-center">대표</th>
                       <td colSpan={3} className="border-b border-slate-900 px-2 py-1 font-bold relative">
                         <span>{config.companyInfo.ceo}</span>
-                        <img src="/seal.png" alt="인" className="absolute left-12 top-1/2 -translate-y-1/2 w-[34px] h-[34px] mix-blend-multiply" />
+                        <img src="/seal-real.png" alt="인" className="absolute left-12 top-1/2 -translate-y-1/2 w-[34px] h-[34px] mix-blend-multiply" />
                       </td>
                     </tr>
                     <tr>
@@ -711,90 +714,51 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                   {getDocumentTitle()}
                 </h1>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {!hidePriceColumns && '(공급받는자 보관용 / 공급자 보관용) · '}전표번호: {slip.slipNo}
+                  {!hidePriceColumns && '(공급받는자 보관용 / 공급자 보관용) · '}전표번호: {slip.slipNo} · 발행일자: {slip.slipDate}
                 </p>
               </div>
 
-              {/* Header Info Tables (Supplier & Buyer) */}
+              {/* Header Info Tables (공급자 · 공급받는 자) — 매입 전표는 거래처가 공급자, 우리 회사가 공급받는 자 */}
               <div className="grid grid-cols-2 gap-4 my-4">
-                {/* Supplier Info (사용 업체: 동산화스너) */}
-                <div className="border border-slate-400 p-2 text-[11px]">
-                  <div className="bg-slate-100 font-bold px-2 py-0.5 mb-1.5 border-b border-slate-300 text-blue-900">
-                    공급자 ({config.companyInfo.name || '동산화스너'})
+                {(slip.slipType === 'PURCHASE' ? [custParty, ownParty] : [ownParty, custParty]).map((party, idx) => (
+                  <div key={idx} className="border border-slate-400 p-2 text-[11px]">
+                    <div className="bg-slate-100 font-bold px-2 py-0.5 mb-1.5 border-b border-slate-300 text-blue-900 flex justify-between items-center">
+                      <span>{idx === 0 ? '공급자' : '공급받는 자'}{party.own ? '' : ' (거래처)'}</span>
+                      {!party.own && slip.siteName && (
+                        <span className="text-[10px] bg-blue-600 text-white font-medium px-1.5 py-0.2 rounded">
+                          현장: {slip.siteName}
+                        </span>
+                      )}
+                    </div>
+                    <table className="w-full text-left">
+                      <tbody>
+                        <tr>
+                          <th className="py-0.5 w-16 text-slate-500">등록번호</th>
+                          <td className="font-mono font-bold">{party.bizNumber || '-'}</td>
+                        </tr>
+                        <tr>
+                          <th className="py-0.5 text-slate-500">상호 / 대표</th>
+                          <td className={`relative ${party.own ? '' : 'font-bold'}`}>
+                            <span>{party.name}{party.site && <span className="text-blue-700 ml-1">[{party.site}]</span>} / {party.ceo || '-'}</span>
+                            {party.own && <img src="/seal-real.png" alt="인" className="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 mix-blend-multiply" />}
+                          </td>
+                        </tr>
+                        <tr>
+                          <th className="py-0.5 text-slate-500">{party.own ? '사업장주소' : '현장/주소'}</th>
+                          <td className="truncate max-w-[200px]">{party.address || '-'}{party.manager ? ` (소장: ${party.manager})` : ''}</td>
+                        </tr>
+                        <tr>
+                          <th className="py-0.5 text-slate-500">업태 / 종목</th>
+                          <td>{party.bizType || party.bizItem ? `${party.bizType || ''} / ${party.bizItem || ''}` : '-'}</td>
+                        </tr>
+                        <tr>
+                          <th className="py-0.5 text-slate-500">전화번호</th>
+                          <td>{party.tel || '-'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
-                  <table className="w-full text-left">
-                    <tbody>
-                      <tr>
-                        <th className="py-0.5 w-16 text-slate-500">등록번호</th>
-                        <td className="font-mono font-bold">{config.companyInfo.bizNumber}</td>
-                      </tr>
-                      <tr>
-                        <th className="py-0.5 text-slate-500">상호 / 대표</th>
-                        <td className="relative">
-                          <span>{config.companyInfo.name} / {config.companyInfo.ceo}</span>
-                          <span className="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full border-2 border-red-500/70 text-red-500/70 flex items-center justify-center text-[11px] font-black transform -rotate-12 bg-white/30 backdrop-blur-[1px] mix-blend-multiply select-none print:border-red-600 print:text-red-600">
-                            (인)
-                          </span>
-                        </td>
-                      </tr>
-                      <tr>
-                        <th className="py-0.5 text-slate-500">사업장주소</th>
-                        <td className="truncate max-w-[200px]">{config.companyInfo.address}</td>
-                      </tr>
-                      <tr>
-                        <th className="py-0.5 text-slate-500">업태 / 종목</th>
-                        <td>{config.companyInfo.bizType} / {config.companyInfo.bizItem}</td>
-                      </tr>
-                      <tr>
-                        <th className="py-0.5 text-slate-500">전화번호</th>
-                        <td>{config.companyInfo.tel}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Buyer Info */}
-                <div className="border border-slate-400 p-2 text-[11px]">
-                  <div className="bg-slate-100 font-bold px-2 py-0.5 mb-1.5 border-b border-slate-300 text-blue-900 flex justify-between items-center">
-                    <span>공급받는 자 (거래처)</span>
-                    {slip.siteName && (
-                      <span className="text-[10px] bg-blue-600 text-white font-medium px-1.5 py-0.2 rounded">
-                        현장: {slip.siteName}
-                      </span>
-                    )}
-                  </div>
-                  <table className="w-full text-left">
-                    <tbody>
-                      <tr>
-                        <th className="py-0.5 w-16 text-slate-500">등록번호</th>
-                        <td className="font-mono font-bold">{customer?.bizNumber || '-'}</td>
-                      </tr>
-                      <tr>
-                        <th className="py-0.5 text-slate-500">상호 / 대표</th>
-                        <td className="font-bold">
-                          {slip.customerName}
-                          {slip.siteName && <span className="text-blue-700 ml-1">[{slip.siteName}]</span>}
-                          {' / '}{customer?.ceo || '-'}
-                        </td>
-                      </tr>
-                      <tr>
-                        <th className="py-0.5 text-slate-500">현장/주소</th>
-                        <td className="truncate max-w-[200px]">
-                          {slip.siteAddress || customer?.address || '-'}
-                          {slip.siteManager ? ` (소장: ${slip.siteManager})` : ''}
-                        </td>
-                      </tr>
-                      <tr>
-                        <th className="py-0.5 text-slate-500">전화번호</th>
-                        <td>{customer?.tel || customer?.mobile || '-'}</td>
-                      </tr>
-                      <tr>
-                        <th className="py-0.5 text-slate-500">발행일자</th>
-                        <td className="font-mono font-bold">{slip.slipDate}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                ))}
               </div>
 
               {/* Total Korean Amount Banner */}
@@ -963,18 +927,16 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                     {slip.slipType === 'ESTIMATE' ? '위와 같이 견적합니다.' : slip.slipType === 'CONTRACT' ? '위 품목을 수주합니다.' : '위 품목을 정히 영수(인수) 함.'}
                   </div>
                   <div className="flex justify-around items-end pt-6">
-                    {!isQuote && (<div>
-                      <span className="text-slate-500 text-[10px]">인수자 : </span>
-                      <span className="border-b border-slate-400 px-6 py-0.5 font-bold">
-                        (인 / 서명)
-                      </span>
-                    </div>)}
-                    <div>
-                      <span className="text-slate-500 text-[10px]">{slip.slipType === 'ESTIMATE' ? '견적자' : slip.slipType === 'CONTRACT' ? '수주자' : '납품자'} : </span>
-                      <span className="border-b border-slate-400 px-6 py-0.5 font-bold">
-                        {config.companyInfo.ceo} (인)
-                      </span>
-                    </div>
+                    {(isQuote ? [{ label: slip.slipType === 'ESTIMATE' ? '견적자' : '수주자', own: true }]
+                      : slip.slipType === 'PURCHASE' ? [{ label: '인수자', own: true }, { label: '납품자', own: false }]
+                      : [{ label: '인수자', own: false }, { label: '납품자', own: true }]).map(sg => (
+                      <div key={sg.label}>
+                        <span className="text-slate-500 text-[10px]">{sg.label} : </span>
+                        <span className="border-b border-slate-400 px-6 py-0.5 font-bold">
+                          {sg.own ? <>{config.companyInfo.ceo} <img src="/seal-real.png" alt="인" className="inline-block w-7 h-7 align-middle mix-blend-multiply" /></> : '(인 / 서명)'}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>

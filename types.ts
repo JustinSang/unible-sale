@@ -195,6 +195,7 @@ export interface SystemConfig {
     address: string;
     tel: string;
     fax?: string;
+    email?: string;
     bizType: string;
     bizItem: string;
   };

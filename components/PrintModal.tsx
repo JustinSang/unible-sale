@@ -535,7 +535,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                 <div className="flex">
                   <span className="font-bold w-[60px] flex-shrink-0">Remark:</span>
                   <span className="whitespace-pre-wrap leading-relaxed tracking-wide">
-                    {slip.memo || '*세종시 행복대로 824 네이버데이터센터 (현택)\n*(주)미동이엔씨 네이버 세종 데이터센터 2~3차\n*010-6559-6012.'}
+                    {slip.memo || ''}
                   </span>
                 </div>
               </div>
@@ -583,7 +583,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                     </tr>
                     <tr>
                       <th className="border-r border-slate-900 py-1 bg-slate-50 text-center">메일</th>
-                      <td className="border-r border-slate-900 px-2 py-1 text-[10px]">dsfastener@daum.net</td>
+                      <td className="border-r border-slate-900 px-2 py-1 text-[10px]">{config.companyInfo.email || ''}</td>
                       <th className="border-r border-slate-900 py-1 bg-slate-50 w-12 text-center">연락처</th>
                       <td className="border-slate-900 px-2 py-1 font-mono text-[10px]">{config.companyInfo.tel}</td>
                     </tr>

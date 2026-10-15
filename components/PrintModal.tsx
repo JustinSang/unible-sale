@@ -1,6 +1,7 @@
 'use client';
 
 import { displayProductName } from '@/lib/productName';
+import { OriginalSlipForm } from './OriginalSlipForm';
 import React, { useState } from 'react';
 import { Printer, X, FileText, Receipt } from 'lucide-react';
 import type { Slip, SystemConfig, Customer } from '@/types';
@@ -19,7 +20,7 @@ const cleanMask = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').trim(
 
 export function PrintModal({ slip, config, customer: customerProp, customers = [], isOpen, onClose }: PrintModalProps) {
   const customer = customerProp ? { ...customerProp, bizNumber: cleanMask(customerProp.bizNumber), tel: cleanMask(customerProp.tel), mobile: cleanMask(customerProp.mobile), fax: cleanMask(customerProp.fax) } : customerProp;
-  const [printType, setPrintType] = useState<'statement' | 'receipt'>('statement');
+  const [printType, setPrintType] = useState<'statement' | 'receipt' | 'original'>('statement');
   const [dispatchStatus, setDispatchStatus] = useState<'IDLE'|'SENDING'|'SUCCESS'|'FAIL'>('IDLE');
   // Inline toast notification — replaces all alert() calls to prevent
   // browser focus event → React re-render → modal disappearing in 0.1s
@@ -386,6 +387,17 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                 <span>거래명세표 (A4)</span>
               </button>
               <button
+                onClick={() => setPrintType('original')}
+                className={`px-3 py-1 flex items-center gap-1 font-semibold ${
+                  printType === 'original'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>원본 양식 (2단·16줄)</span>
+              </button>
+              <button
                 onClick={() => setPrintType('receipt')}
                 className={`px-3 py-1 flex items-center gap-1 font-semibold ${
                   printType === 'receipt'
@@ -707,6 +719,16 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                 </tbody>
               </table>
             </div>
+          ) : printType === 'original' ? (
+            <OriginalSlipForm
+              slip={slip}
+              supplier={isInbound ? custParty : ownParty}
+              buyer={isInbound ? ownParty : custParty}
+              kindLabel={({ SALES: '매출', PURCHASE: '매입', RETURN_IN: '반입', RETURN_OUT: '반출', ESTIMATE: '견적', ORDER: '발주', DELIVERY: '납품', CONTRACT: '수주' } as Record<string, string>)[slip.slipType] || ''}
+              seal={isInbound ? '' : '/seal-real.png'}
+              prevBalance={slip.prevReceivables}
+              showPrev={slip.showPrevBalance !== false}
+            />
           ) : printType === 'statement' ? (
             /* Standard A4 Transaction Statement */
             <div className="w-[210mm] min-h-[297mm] bg-white p-8 shadow-sm border border-slate-300 print:border-none print:shadow-none print:p-0 print:w-full text-slate-900 text-[11px] font-sans">

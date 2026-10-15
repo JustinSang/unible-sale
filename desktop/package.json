@@ -1,0 +1,43 @@
+{
+  "name": "unible-sale-desktop",
+  "version": "1.0.0",
+  "description": "UNIBLE SALE (유니블 세일) 데스크톱 앱 — Windows·macOS",
+  "author": "UNIBLE Solution <uniblesolution@gmail.com>",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist": "electron-builder --mac --win"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.unible.sale",
+    "productName": "UNIBLE SALE",
+    "copyright": "© UNIBLE Solution",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.js", "preload.js", "offline.html", "settings.html", "package.json"],
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }, { "target": "zip", "arch": ["arm64", "x64"] }],
+      "identity": null
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "UNIBLE SALE",
+      "language": "1042"
+    },
+    "artifactName": "UNIBLE-SALE-${version}-${os}-${arch}.${ext}"
+  }
+}

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useMemo, useDeferredValue } from 'react';
+import React, { useState, useMemo, useDeferredValue, useEffect, useRef } from 'react';
 import {
   Plus,
+  Copy,
   Search,
   Edit2,
   Trash2,
@@ -32,6 +33,10 @@ export function ProductMasterView({
   osTheme
 }: ProductMasterViewProps) {
   const [searchTerm, setSearchTerm] = useState<string>('');
+  // 목록에서 매입단가·협정가·판매단가를 바로 고치고 F8로 저장(원본 «목록자료» 화면 — 상품코드 관리 매뉴얼 8항).
+  const [inlineEdit, setInlineEdit] = useState<boolean>(false);
+  const [edits, setEdits] = useState<Record<string, Partial<Product>>>({});
+  const [savingEdits, setSavingEdits] = useState<boolean>(false);
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
@@ -53,6 +58,7 @@ export function ProductMasterView({
   }, [products]);
 
   const filteredProducts = useMemo(() => {
+    // 원본: 품명-규격 사전순으로 자동 정렬해 보여준다(상품코드 관리 매뉴얼). 다른명칭·바코드로도 찾는다.
     return products.filter(p => {
       const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
       if (!matchesCategory) return false;
@@ -60,9 +66,10 @@ export function ProductMasterView({
       const q = deferredSearchTerm.toLowerCase();
       return (
         p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q) ||
-        p.spec.toLowerCase().includes(q) || (p.supplier && p.supplier.toLowerCase().includes(q))
+        p.spec.toLowerCase().includes(q) || (p.supplier && p.supplier.toLowerCase().includes(q)) ||
+        (p.nickName && p.nickName.toLowerCase().includes(q)) || (p.barcode && p.barcode.toLowerCase().includes(q))
       );
-    });
+    }).sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.spec.localeCompare(b.spec, 'ko', { numeric: true }));
   }, [products, deferredSearchTerm, selectedCategory]);
 
   const kpiData = useMemo(() => {
@@ -108,9 +115,81 @@ export function ProductMasterView({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name?.trim()) { alert('품목명을 입력해주세요.'); return; }
-    if (editingId) { await onUpdateProduct(editingId, form); } else { await onAddProduct(form); }
+    try {
+      if (editingId) { await onUpdateProduct(editingId, form); } else { await onAddProduct(form); }
+    } catch (err: any) { alert(err.message || '저장 중 오류가 발생했습니다.'); return; }
     setIsModalOpen(false);
   };
+
+  // 품목 복사(F5): 품명은 같고 규격만 다를 때. 복사본은 새 품목으로 저장된다.
+  const handleOpenCopy = (p: Product) => {
+    setEditingId(null);
+    setForm({ ...p, id: undefined, code: `PRD-${(products.length + 1).toString().padStart(4, '0')}`, currentStock: 0 });
+    setIsModalOpen(true);
+  };
+
+  // 집단 수정(F12): 같은 품명 전체를 다른 품명으로 한꺼번에 바꾼다.
+  const handleGroupRename = async (p: Product) => {
+    const next = window.prompt(`«${p.name}» 품명을 가진 모든 품목의 품명을 바꿉니다.\n새 품명을 입력하세요.`, p.name);
+    if (!next || next.trim() === p.name) return;
+    const group = products.filter(x => x.name === p.name);
+    if (!window.confirm(`${group.length}개 품목의 품명을 «${next.trim()}»(으)로 바꿉니다. 진행할까요?`)) return;
+    for (const x of group) await onUpdateProduct(x.id, { name: next.trim() });
+  };
+
+  // 집단 복사(F11): 규격은 같고 품명만 다른 품목 묶음 등록 — 같은 품명 전체를 새 품명으로 복사한다.
+  const handleGroupCopy = async (p: Product) => {
+    const next = window.prompt(`«${p.name}» 품명의 모든 규격을 새 품명으로 복사합니다.\n새 품명을 입력하세요.`, '');
+    if (!next || !next.trim() || next.trim() === p.name) return;
+    const group = products.filter(x => x.name === p.name);
+    if (!window.confirm(`${group.length}개 품목을 «${next.trim()}»(으)로 복사합니다. 진행할까요?`)) return;
+    let n = products.length;
+    for (const x of group) {
+      n += 1;
+      const { id: _id, ...rest } = x;
+      await onAddProduct({ ...rest, name: next.trim(), code: `PRD-${String(n).padStart(4, '0')}`, currentStock: 0 });
+    }
+  };
+
+  const saveEdits = async () => {
+    const ids = Object.keys(edits);
+    if (ids.length === 0) { setInlineEdit(false); return; }
+    setSavingEdits(true);
+    try {
+      for (const id of ids) await onUpdateProduct(id, edits[id]);
+      setEdits({}); setInlineEdit(false);
+    } catch (e: any) { alert(e.message || '저장 중 오류가 발생했습니다.'); }
+    finally { setSavingEdits(false); }
+  };
+  const cancelEdits = () => { setEdits({}); setInlineEdit(false); };
+  const setEdit = (p: Product, field: 'costPrice' | 'retailPrice' | 'sellingPrice', raw: string) => {
+    const v = Number(raw) || 0;
+    setEdits(prev => {
+      const base = { ...(prev[p.id] || {}) } as Partial<Product>;
+      if ((p[field] || 0) === v) delete (base as Record<string, unknown>)[field]; else (base as Record<string, unknown>)[field] = v;
+      const next = { ...prev };
+      if (Object.keys(base).length === 0) delete next[p.id]; else next[p.id] = base;
+      return next;
+    });
+  };
+
+  // 핫키(원본): Insert 추가 · F2 조회(검색 칸으로) · F8 저장 · Esc 닫기
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isModalOpen) {
+        if (e.key === 'F8') { e.preventDefault(); (document.getElementById('product-form') as HTMLFormElement | null)?.requestSubmit(); }
+        else if (e.key === 'Escape') setIsModalOpen(false);
+        return;
+      }
+      if (inlineEdit && e.key === 'F8') { e.preventDefault(); saveEdits(); return; }
+      if (inlineEdit && e.key === 'Escape') { cancelEdits(); return; }
+      if (e.key === 'Insert') { e.preventDefault(); handleOpenAdd(); }
+      else if (e.key === 'F2') { e.preventDefault(); searchRef.current?.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const handleDelete = async (p: Product) => {
     if (confirm(`품목 [${p.name} (${p.spec})]을 삭제하시겠습니까?`)) { await onDeleteProduct(p.id); }
@@ -184,7 +263,15 @@ export function ProductMasterView({
             </h2>
             <p className="text-xs text-slate-500">동산화스너 취급 볼트, 너트, 와셔, 앙카, 찬넬 규격 및 원가/출고단가 관리</p>
           </div>
-          <button onClick={handleOpenAdd} className="px-3.5 py-2 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-sm transition-colors">
+          {inlineEdit ? (
+              <>
+                <button onClick={saveEdits} disabled={savingEdits} className="px-3 py-2 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-sm">{savingEdits ? '저장 중…' : `저장 (F8) · ${Object.keys(edits).length}건`}</button>
+                <button onClick={cancelEdits} className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-300 bg-white hover:bg-slate-50">취소 (Esc)</button>
+              </>
+            ) : (
+              <button onClick={() => setInlineEdit(true)} className="px-3 py-2 text-xs font-semibold rounded-lg border border-slate-300 bg-white hover:bg-slate-50" title="목록에서 매입단가·협정가·판매단가를 바로 고치고 F8로 저장">단가 일괄 수정</button>
+            )}
+            <button onClick={handleOpenAdd} className="px-3.5 py-2 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-sm transition-colors">
             <Plus className="w-4 h-4" /> 신규 품목 등록
           </button>
         </div>
@@ -206,7 +293,7 @@ export function ProductMasterView({
           </div>
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="품명/코드/규격/매입처 검색..." value={searchTerm} onChange={e => handleSearchChange(e.target.value)} className="pl-8 pr-8 py-1.5 border border-slate-300 rounded-lg bg-white w-64 text-xs focus:ring-1 focus:ring-blue-500 transition-colors" />
+            <input ref={searchRef} type="text" placeholder="품명/다른명칭/코드/규격/매입처 검색... (F2)" value={searchTerm} onChange={e => handleSearchChange(e.target.value)} className="pl-8 pr-8 py-1.5 border border-slate-300 rounded-lg bg-white w-64 text-xs focus:ring-1 focus:ring-blue-500 transition-colors" />
             {searchTerm && (
               <button type="button" onClick={() => handleSearchChange('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
                 <X className="w-3.5 h-3.5" />
@@ -227,19 +314,23 @@ export function ProductMasterView({
                 <th className="py-3 px-3 min-w-[90px]">품목코드</th>
                 <th className="py-3 px-3 min-w-[100px]">분류</th>
                 <th className="py-3 px-3 min-w-[160px]">품명 (상품명)</th>
+                <th className="py-3 px-3 min-w-[100px]">다른명칭</th>
                 <th className="py-3 px-3 min-w-[120px]">규격 (Spec)</th>
                 <th className="py-3 px-3 min-w-[60px] text-center">단위</th>
                 <th className="py-3 px-3 min-w-[90px] text-right">매입단가</th>
+                <th className="py-3 px-3 min-w-[90px] text-right">협정가</th>
+                <th className="py-3 px-3 min-w-[90px] text-center">최종매입일</th>
                 <th className="py-3 px-3 min-w-[130px] text-right">출고단가(1/2/3)</th>
                 <th className="py-3 px-3 min-w-[90px] text-right">마진/할인</th>
                 <th className="py-3 px-3 min-w-[80px] text-right">현재고</th>
+                <th className="py-3 px-3 min-w-[120px]">비고</th>
                 <th className="py-3 px-3 min-w-[80px] text-center">상태</th>
                 <th className="py-3 px-3 min-w-[70px] text-center">관리</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white" role="rowgroup">
               {paginatedProducts.length === 0 ? (
-                <tr><td colSpan={11} className="py-12 text-center text-slate-400"><Package className="w-8 h-8 mx-auto text-slate-300 mb-2" />일치하는 품목이 없습니다.</td></tr>
+                <tr><td colSpan={15} className="py-12 text-center text-slate-400"><Package className="w-8 h-8 mx-auto text-slate-300 mb-2" />일치하는 품목이 없습니다.</td></tr>
               ) : (
                 paginatedProducts.map(p => {
                   const margin = p.sellingPrice > 0 ? Math.round(((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100) : 0;
@@ -254,11 +345,20 @@ export function ProductMasterView({
                         </div>
                       </td>
                       <td className="py-2.5 px-3 font-semibold text-slate-900">{p.name}</td>
+                      <td className="py-2.5 px-3 text-slate-600">{p.nickName}</td>
                       <td className="py-2.5 px-3 font-mono text-slate-600">{p.spec}</td>
                       <td className="py-2.5 px-3 text-center text-slate-500">{p.unit}</td>
-                      <td className="py-2.5 px-3 text-right font-mono text-slate-600">{p.costPrice.toLocaleString('ko-KR')}</td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                        {inlineEdit ? <input type="number" value={edits[p.id]?.costPrice ?? p.costPrice} onChange={e => setEdit(p, 'costPrice', e.target.value)} className="w-24 py-1 px-1.5 border border-amber-300 rounded text-right bg-amber-50" /> : p.costPrice.toLocaleString('ko-KR')}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                        {inlineEdit ? <input type="number" value={edits[p.id]?.retailPrice ?? p.retailPrice ?? 0} onChange={e => setEdit(p, 'retailPrice', e.target.value)} className="w-24 py-1 px-1.5 border border-amber-300 rounded text-right bg-amber-50" /> : (p.retailPrice ? p.retailPrice.toLocaleString('ko-KR') : '')}
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-mono text-slate-500">{p.lastPurchaseDate || ''}</td>
                       <td className="py-2.5 px-3 text-right font-mono">
-                        <div className="font-bold text-slate-900">{p.sellingPrice.toLocaleString('ko-KR')}</div>
+                        {inlineEdit
+                          ? <input type="number" value={edits[p.id]?.sellingPrice ?? p.sellingPrice} onChange={e => setEdit(p, 'sellingPrice', e.target.value)} className="w-24 py-1 px-1.5 border border-amber-300 rounded text-right bg-amber-50 font-bold" />
+                          : <div className="font-bold text-slate-900">{p.sellingPrice.toLocaleString('ko-KR')}</div>}
                         {(p.sellingPrice2 || p.sellingPrice3) && (
                           <div className="text-[10px] text-slate-500">{p.sellingPrice2 ? p.sellingPrice2.toLocaleString('ko-KR') : '-'} / {p.sellingPrice3 ? p.sellingPrice3.toLocaleString('ko-KR') : '-'}</div>
                         )}
@@ -268,6 +368,7 @@ export function ProductMasterView({
                         {p.discountRate ? <div className="text-[10px] text-blue-600">-{p.discountRate}%</div> : null}
                       </td>
                       <td className={`py-2.5 px-3 text-right font-mono font-bold ${isShortage ? 'text-rose-600' : 'text-slate-800'}`}>{p.currentStock.toLocaleString('ko-KR')}</td>
+                      <td className="py-2.5 px-3 text-slate-500 max-w-[160px] truncate" title={p.memo}>{p.memo}</td>
                       <td className="py-2.5 px-3 text-center">
                         {isShortage ? (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700"><AlertTriangle className="w-2.5 h-2.5" /> 부족</span>
@@ -278,6 +379,9 @@ export function ProductMasterView({
                       <td className="py-2.5 px-3 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={() => handleOpenEdit(p)} className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="품목 수정"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleOpenCopy(p)} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="품목 복사 (F5) — 같은 품명에 다른 규격 등록"><Copy className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleGroupRename(p)} className="px-1.5 py-1 text-[10px] font-bold text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors" title="집단 수정 (F12) — 같은 품명 전체의 품명 변경">집단수정</button>
+                          <button onClick={() => handleGroupCopy(p)} className="px-1.5 py-1 text-[10px] font-bold text-slate-500 hover:text-violet-700 hover:bg-violet-50 rounded-lg transition-colors" title="집단 복사 (F11) — 같은 품명 전체를 새 품명으로 복사">집단복사</button>
                           <button onClick={() => handleDelete(p)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="품목 삭제"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
@@ -318,7 +422,7 @@ export function ProductMasterView({
               <button onClick={() => setIsModalOpen(false)} className="p-1 hover:bg-white/20 rounded transition-colors"><X className="w-4 h-4" /></button>
             </div>
 
-            <form onSubmit={handleSave} className="p-4 space-y-4 text-xs max-h-[70vh] overflow-y-auto">
+            <form id="product-form" onSubmit={handleSave} className="p-4 space-y-4 text-xs max-h-[70vh] overflow-y-auto">
               {/* 기본 정보 */}
               <div className="space-y-3">
                 <div className="flex items-center gap-1.5 text-slate-800 font-bold text-[11px] border-b border-slate-200 pb-1.5">
@@ -348,6 +452,11 @@ export function ProductMasterView({
                   <label className="block font-semibold text-slate-700 mb-1">품명 (상품명)</label>
                   <input type="text" placeholder="예: 육각볼트 (Hex Bolt)" value={form.name || ''} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white focus:ring-1 focus:ring-blue-500" required />
                 </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">다른명칭 <span className="font-normal text-slate-400">(약어·관리코드, 검색에 쓰임)</span></label>
+                  <input type="text" value={form.nickName || ''} onChange={e => setForm({ ...form, nickName: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 font-mono" />
+                </div>
+                <p className="text-[10px] text-slate-400 -mt-1">같은 품명을 구분할 때는 «볼트{'{'}중국제{'}'}»처럼 중괄호로 적으면 전표·출력에는 중괄호 안 글자가 빠집니다.</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">규격 (Spec)</label>
@@ -396,6 +505,56 @@ export function ProductMasterView({
                 </div>
               </div>
 
+              {/* 오케이세일 호환 상세 정보 */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-1.5 text-slate-800 font-bold text-[11px] border-b border-slate-200 pb-1.5">상세 정보 (메이커·매입·보관)</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">메이커</label>
+                    <input type="text" value={form.maker || ''} onChange={e => setForm({ ...form, maker: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">모델 No</label>
+                    <input type="text" value={form.modelNo || ''} onChange={e => setForm({ ...form, modelNo: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">색상</label>
+                    <input type="text" value={form.color || ''} onChange={e => setForm({ ...form, color: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">협정가 (소비자가)</label>
+                    <input type="number" value={form.retailPrice ?? ''} onChange={e => setForm({ ...form, retailPrice: Number(e.target.value) || 0 })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">매입단가</label>
+                    <input type="number" value={form.purchasePrice ?? ''} onChange={e => setForm({ ...form, purchasePrice: Number(e.target.value) || 0 })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">최종 매입일</label>
+                    <input type="date" value={form.lastPurchaseDate || ''} onChange={e => setForm({ ...form, lastPurchaseDate: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">최종 매입가</label>
+                    <input type="number" value={form.lastPurchasePrice ?? ''} onChange={e => setForm({ ...form, lastPurchasePrice: Number(e.target.value) || 0 })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">보관 위치</label>
+                    <input type="text" value={form.storageLocation || ''} onChange={e => setForm({ ...form, storageLocation: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white" />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">과세 여부</label>
+                    <select value={form.taxType || 'taxable'} onChange={e => setForm({ ...form, taxType: e.target.value as 'taxable' | 'exempt' })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white">
+                      <option value="taxable">과세</option>
+                      <option value="exempt">면세</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end gap-4 pb-1.5">
+                    <label className="flex items-center gap-1.5 font-semibold text-slate-700"><input type="checkbox" checked={form.applyDiscount ?? false} onChange={e => setForm({ ...form, applyDiscount: e.target.checked })} /> 할인율 적용</label>
+                    <label className="flex items-center gap-1.5 font-semibold text-slate-700"><input type="checkbox" checked={form.stockManaged ?? true} onChange={e => setForm({ ...form, stockManaged: e.target.checked })} /> 재고관리</label>
+                  </div>
+                </div>
+              </div>
+
               {/* 재고 정보 */}
               <div className="space-y-3">
                 <div className="flex items-center gap-1.5 text-slate-800 font-bold text-[11px] border-b border-slate-200 pb-1.5">
@@ -407,12 +566,22 @@ export function ProductMasterView({
                     <input type="number" value={form.currentStock || 0} onChange={e => setForm({ ...form, currentStock: Number(e.target.value) || 0 })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-right font-mono focus:ring-1 focus:ring-blue-500" />
                   </div>
                   <div>
+                    <label className="block font-semibold text-slate-700 mb-1">이월재고 <span className="font-normal text-slate-400">(사용 이전·전년도 말)</span></label>
+                    <input type="number" value={form.openingStock ?? ''} onChange={e => setForm({ ...form, openingStock: Number(e.target.value) || 0 })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 text-right font-mono" />
+                  </div>
+                  <div>
                     <label className="block font-semibold text-slate-700 mb-1">안전/적정 재고</label>
                     <input type="number" value={form.safeStock || 0} onChange={e => setForm({ ...form, safeStock: Number(e.target.value) || 0 })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-right font-mono focus:ring-1 focus:ring-blue-500" />
                   </div>
                 </div>
+                <div className="grid grid-cols-3 gap-2 border border-slate-200 rounded-md p-2 bg-slate-50/50">
+                  <div className="col-span-3 text-[11px] font-bold text-slate-600">직전 매입 (매입 전표를 저장하면 자동으로 밀려 들어갑니다)</div>
+                  <div><label className="block font-semibold text-slate-600 mb-1">최종매입처2</label><input type="text" value={form.supplier2 || ''} onChange={e => setForm({ ...form, supplier2: e.target.value })} className="w-full px-2 py-1.5 border border-slate-300 rounded-md" /></div>
+                  <div><label className="block font-semibold text-slate-600 mb-1">최종매입일2</label><input type="date" value={form.lastPurchaseDate2 || ''} onChange={e => setForm({ ...form, lastPurchaseDate2: e.target.value })} className="w-full px-2 py-1.5 border border-slate-300 rounded-md font-mono" /></div>
+                  <div><label className="block font-semibold text-slate-600 mb-1">최종매입가2</label><input type="number" value={form.lastPurchasePrice2 ?? ''} onChange={e => setForm({ ...form, lastPurchasePrice2: Number(e.target.value) || 0 })} className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-right font-mono" /></div>
+                </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">매입처 / 공급공장</label>
+                  <label className="block font-semibold text-slate-700 mb-1">매입처 / 공급공장 <span className="font-normal text-slate-400">(최종매입처1)</span></label>
                   <input type="text" placeholder="성화내진전착볼트(주) 등" value={form.supplier || ''} onChange={e => setForm({ ...form, supplier: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white focus:ring-1 focus:ring-blue-500" />
                 </div>
               </div>

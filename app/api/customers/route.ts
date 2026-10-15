@@ -37,7 +37,11 @@ export async function POST(req: Request) {
       priceTier: Number(data.priceTier) || 1,
       email: data.email || '',
       memo: data.memo || '',
-      sites: data.sites || []
+      sites: data.sites || [],
+      // 화면 양식의 나머지 칸(여신한도·영업사원·등급·최소마진율·담당자·직책·홈페이지·우편번호·은행·예금주·계좌·구분·부가세·전화2·3·존칭·상세주소 등)을 버리지 않는다.
+      ...Object.fromEntries(['subBizNumber', 'creditLimit', 'salesman', 'grade', 'minMarginRate', 'contactName', 'contactDuty', 'homepage', 'zip', 'bank', 'accountHolder', 'account', 'taxEmail', 'category', 'vatType', 'tel2', 'tel3', 'title', 'address2', 'post']
+        .filter(k => (data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== '')
+        .map(k => [k, (data as Record<string, unknown>)[k]]))
     };
 
     const { error } = await supabase.from('customers').insert(newCustomer);

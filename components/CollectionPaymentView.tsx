@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useDeferredValue } from 'react';
+import React, { useState, useMemo, useDeferredValue, useEffect } from 'react';
+import { customerBalance, customerMonthly, dedupeSlips, withOpening } from '@/lib/ledgerRules';
 import {
   Wallet,
   ArrowDownLeft,
@@ -28,6 +29,9 @@ interface CollectionPaymentViewProps {
     customerId: string;
     method: 'cash' | 'bank' | 'bill';
     amount: number;
+    discount?: number;
+    billNo?: string;
+    prevBalance?: number;
     memo?: string;
   }) => Promise<void>;
   osTheme: OSTheme;
@@ -49,6 +53,15 @@ export function CollectionPaymentView({
   const [method, setMethod] = useState<'cash' | 'bank' | 'bill'>('bank');
   const [amount, setAmount] = useState<number>(0);
   const [memo, setMemo] = useState<string>('');
+  const [discount, setDiscount] = useState<number>(0);
+  const [billNo, setBillNo] = useState<string>('');
+  const [stmtFrom, setStmtFrom] = useState<string>(today.slice(0, 4) + '-01-01');
+  const [stmtTo, setStmtTo] = useState<string>(today);
+  // 기초잔액(전표입력·장부 화면과 같은 값) — 도입 시점 잔액을 입력해 두면 입금예정액·월별 내역에 반영된다.
+  const [opening, setOpening] = useState<{ asOf: string; byCustomer: Record<string, number> }>({ asOf: '', byCustomer: {} });
+  useEffect(() => {
+    fetch('/api/config').then(r => (r.ok ? r.json() : null)).then(c => { if (c?.openingBalances?.byCustomer) setOpening(c.openingBalances); }).catch(() => {});
+  }, []);
 
   const [searchTerm, setSearchTerm] = useState<string>('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
@@ -72,10 +85,24 @@ export function CollectionPaymentView({
     return customers.find(c => c.id === selectedCustomerId || c.code === selectedCustomerId);
   }, [customers, selectedCustomerId]);
 
+  const cleanSlips = useMemo(() => dedupeSlips(slips).slips, [slips]); // 이관 중복 전표 제외(장부 화면과 같은 기준)
+  // 초기이월금은 입력한 거래처에만 기준일을 적용한다(원본과 같음) — 나머지 거래처는 모든 거래가 그대로 센다.
+  const eff = useMemo(() => withOpening(cleanSlips, collections, opening), [cleanSlips, collections, opening]);
+  const curBalance = useMemo(
+    () => (selectedCustomer ? customerBalance(eff.slips as any, eff.collections, selectedCustomer.id, eff.base.get(selectedCustomer.id) || 0) : 0),
+    [selectedCustomer, eff]
+  );
+  const afterBalance = type === 'collection' ? curBalance - amount - discount : curBalance + amount + discount;
+  const statement = useMemo(
+    () => (selectedCustomer ? customerMonthly(eff.slips as any, eff.collections, selectedCustomer.id, stmtFrom, stmtTo, eff.base.get(selectedCustomer.id) || 0) : null),
+    [selectedCustomer, eff, stmtFrom, stmtTo]
+  );
+
   // KPI calculations
   const kpiData = useMemo(() => {
+    // 총 미수금 = 거래처별 잔액(기초잔액+전표+수금, 장부·거래처 원장과 같은 기준) 중 받을 돈(+)의 합
     let totalReceivables = 0;
-    customers.forEach(c => { totalReceivables += (c.receivables || 0); });
+    customers.forEach(c => { const b = customerBalance(eff.slips as any, eff.collections, c.id, eff.base.get(c.id) || 0); if (b > 0) totalReceivables += b; });
 
     let monthlyCollections = 0;
     let monthlyPayments = 0;
@@ -95,7 +122,7 @@ export function CollectionPaymentView({
     const collectionRate = monthlySales > 0 ? Math.round((monthlyCollections / monthlySales) * 100) : 0;
 
     return { totalReceivables, monthlyCollections, monthlyPayments, collectionRate };
-  }, [customers, collections, slips, currentMonthPrefix]);
+  }, [customers, collections, slips, currentMonthPrefix, eff]);
 
   const filteredHistory = useMemo(() => {
     return collections.filter(item => {
@@ -118,8 +145,10 @@ export function CollectionPaymentView({
 
     setIsSubmitting(true);
     try {
-      await onAddCollection({ date, type, customerId: selectedCustomerId, method, amount, memo });
+      await onAddCollection({ date, type, customerId: selectedCustomer?.id || selectedCustomerId, method, amount, discount, billNo: method === 'bill' ? billNo : '', prevBalance: curBalance, memo });
       setAmount(0);
+      setDiscount(0);
+      setBillNo('');
       setMemo('');
       alert(`${type === 'collection' ? '수금' : '지급'} 처리가 완료되었습니다.`);
     } catch (err: any) {
@@ -128,6 +157,16 @@ export function CollectionPaymentView({
       setIsSubmitting(false);
     }
   };
+
+  // 핫키(원본): F7 확인(저장) · Esc 취소(입력 지우기)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F7') { e.preventDefault(); (document.getElementById('cp-form') as HTMLFormElement | null)?.requestSubmit(); }
+      else if (e.key === 'Escape') { setAmount(0); setDiscount(0); setBillNo(''); setMemo(''); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const formatKRW = (num: number) => num.toLocaleString('ko-KR') + '원';
 
@@ -246,7 +285,7 @@ export function CollectionPaymentView({
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+        <form id="cp-form" onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
           <div>
             <label className="block font-semibold text-slate-700 mb-1">처리 일자</label>
             <input
@@ -316,6 +355,43 @@ export function CollectionPaymentView({
             />
           </div>
 
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">할인액</label>
+            <input
+              type="number"
+              placeholder="0"
+              value={discount || ''}
+              onChange={e => setDiscount(Number(e.target.value) || 0)}
+              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-right font-mono focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">{type === 'collection' ? '입금예정액' : '지급예정액'} <span className="font-normal text-slate-400">(현재 잔액)</span></label>
+            <div className={`px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-right font-mono font-bold ${curBalance < 0 ? 'text-blue-700' : 'text-slate-800'}`}>
+              {selectedCustomer ? curBalance.toLocaleString('ko-KR') : '-'}
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">{type === 'collection' ? '입금후잔액' : '지급후잔액'}</label>
+            <div className={`px-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-right font-mono font-bold ${afterBalance < 0 ? 'text-blue-700' : 'text-slate-800'}`}>
+              {selectedCustomer ? afterBalance.toLocaleString('ko-KR') : '-'}
+            </div>
+          </div>
+
+          {method === 'bill' && (
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">어음번호</label>
+              <input
+                type="text"
+                value={billNo}
+                onChange={e => setBillNo(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white font-mono focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          )}
+
           <div className="sm:col-span-2 lg:col-span-4">
             <input
               type="text"
@@ -329,6 +405,7 @@ export function CollectionPaymentView({
           <div className="flex items-end">
             <button
               type="submit"
+              title="F7"
               disabled={isSubmitting}
               className={`w-full py-2 rounded-lg font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors ${
                 type === 'collection'
@@ -341,6 +418,35 @@ export function CollectionPaymentView({
             </button>
           </div>
         </form>
+
+        {selectedCustomer && statement && (
+          <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2">
+              <span className="font-bold text-slate-700">{selectedCustomer.name} — 월별 거래 내역</span>
+              <label className="font-semibold ml-2">기간</label>
+              <input type="date" value={stmtFrom} onChange={e => setStmtFrom(e.target.value)} className="border border-slate-300 rounded px-1.5 py-0.5 font-mono" />
+              <span>~</span>
+              <input type="date" value={stmtTo} onChange={e => setStmtTo(e.target.value)} className="border border-slate-300 rounded px-1.5 py-0.5 font-mono" />
+              <span className="text-slate-400">잔액: 미수금 +, 미지급금 −</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead><tr className="bg-slate-100 text-slate-600">{['전표년월', '매입액', '대급금', '지급액', '매출액', '예수금', '수금액', '잔액'].map(h => <th key={h} className="px-2 py-1.5 border border-slate-200 text-right first:text-center whitespace-nowrap">{h}</th>)}</tr></thead>
+                <tbody>
+                  <tr className="bg-white"><td className="px-2 py-1 border border-slate-200 text-center font-semibold">이월</td><td colSpan={6} className="border border-slate-200"></td><td className="px-2 py-1 border border-slate-200 text-right font-mono font-bold">{statement.opening.toLocaleString('ko-KR')}</td></tr>
+                  {statement.rows.map(r => (
+                    <tr key={r.ym} className="bg-white">
+                      <td className="px-2 py-1 border border-slate-200 text-center font-mono">{r.ym.slice(0, 4)}년 {r.ym.slice(5)}월</td>
+                      {[r.purchase, r.purchaseTax, r.payment, r.sales, r.salesTax, r.receipt].map((v, i) => <td key={i} className="px-2 py-1 border border-slate-200 text-right font-mono">{v ? v.toLocaleString('ko-KR') : '0'}</td>)}
+                      <td className="px-2 py-1 border border-slate-200 text-right font-mono font-bold">{r.balance.toLocaleString('ko-KR')}</td>
+                    </tr>
+                  ))}
+                  {statement.rows.length === 0 && <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-400">조회 기간에 거래가 없습니다.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {selectedCustomer && (
           <div className="mt-3 pt-3 border-t border-slate-200/80 flex flex-wrap items-center justify-between text-xs bg-slate-50 p-3 rounded-lg">

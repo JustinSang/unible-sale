@@ -289,6 +289,23 @@ export function TaxInvoiceView({
 
   const formatKRW = (num: number) => num.toLocaleString('ko-KR');
 
+  // 발행이력 필터 — totals가 쓰므로 그 앞에 둔다(뒤에 있으면 «발행이력» 탭에서 초기화 전 접근 오류로 화면이 멈춤)
+  const filteredHistoryData = useMemo(() => {
+    if (viewMode !== 'history') return [];
+    return taxInvoices.filter(ti => {
+      // Filter by date
+      if (ti.taxDate < startDate || ti.taxDate > endDate) return false;
+      // Filter by vatType (taxKind)
+      if (vatType === '1' && ti.taxKind === '2') return false;
+      if (vatType === '2' && ti.taxKind === '1') return false;
+      // Filter by customer name
+      if (searchCustomer.trim()) {
+        if (!ti.customerName.includes(searchCustomer.trim())) return false;
+      }
+      return true;
+    }).sort((a, b) => a.taxDate.localeCompare(b.taxDate));
+  }, [taxInvoices, startDate, endDate, vatType, searchCustomer, viewMode]);
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 7. Totals computation
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -319,21 +336,6 @@ export function TaxInvoiceView({
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 8. History (기존 세금계산서 이력) filtered data
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  const filteredHistoryData = useMemo(() => {
-    if (viewMode !== 'history') return [];
-    return taxInvoices.filter(ti => {
-      // Filter by date
-      if (ti.taxDate < startDate || ti.taxDate > endDate) return false;
-      // Filter by vatType (taxKind)
-      if (vatType === '1' && ti.taxKind === '2') return false;
-      if (vatType === '2' && ti.taxKind === '1') return false;
-      // Filter by customer name
-      if (searchCustomer.trim()) {
-        if (!ti.customerName.includes(searchCustomer.trim())) return false;
-      }
-      return true;
-    }).sort((a, b) => a.taxDate.localeCompare(b.taxDate));
-  }, [taxInvoices, startDate, endDate, vatType, searchCustomer, viewMode]);
 
   const themeBorder = osTheme === 'winxp-retro' ? 'border-[#808080]' : 'border-slate-300';
   const themeHeaderBg = osTheme === 'winxp-retro' ? 'bg-[#ece9d8]' : 'bg-slate-100';

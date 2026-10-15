@@ -1,18 +1,17 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { loadStore, saveStore } from '@/lib/store';
+import { supabase } from '@/lib/supabase';
 import type { TaxInvoice } from '@/types';
 
 export async function GET() {
-  const store = loadStore();
-  return NextResponse.json(store.taxInvoices || []);
+  const { data, error } = await supabase.from('tax_invoices').select('*').order('taxDate', { ascending: false });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data || []);
 }
 
 export async function POST(req: Request) {
   try {
     const body: Partial<TaxInvoice> = await req.json();
-    const store = loadStore();
-
     const supplyAmount = Number(body.supplyAmount) || 0;
     const taxAmount = Number(body.taxAmount) || Math.round(supplyAmount * 0.1);
     const totalAmount = supplyAmount + taxAmount;
@@ -41,9 +40,8 @@ export async function POST(req: Request) {
       memo: body.memo || ''
     };
 
-    if (!store.taxInvoices) store.taxInvoices = [];
-    store.taxInvoices.unshift(newTax);
-    saveStore(store);
+    const { error } = await supabase.from('tax_invoices').insert(newTax);
+    if (error) throw new Error(error.message);
 
     return NextResponse.json(newTax, { status: 201 });
   } catch (error: any) {

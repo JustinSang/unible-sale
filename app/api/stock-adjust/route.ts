@@ -32,11 +32,11 @@ export async function POST(req: Request) {
       createdAt: new Date().toISOString()
     };
 
-    // Need to save log somewhere, but we didn't create inventory_logs table in our basic schema.
-    // If table doesn't exist, this might fail, so we should skip or create it later.
-    // For now we just update the product stock.
     const { error: updateError } = await supabase.from('products').update({ currentStock: afterQty }).eq('id', productId);
     if (updateError) throw new Error(updateError.message);
+
+    const { error: logError } = await supabase.from('inventory_logs').insert(log);
+    if (logError) console.error('inventory_logs insert failed:', logError.message);
 
     return NextResponse.json(log, { status: 201 });
   } catch (error: any) {

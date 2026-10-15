@@ -1,0 +1,641 @@
+[
+ {
+  "rpt": "AccountBook.rpt",
+  "tables": [
+   "AccountBookTable"
+  ],
+  "funcs": [
+   "007367a0",
+   "007375c0",
+   "00800f20"
+  ],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "BuyTaxList.rpt",
+  "tables": [
+   "TaxListTable"
+  ],
+  "funcs": [],
+  "params": [
+   "@UserAddress (String)",
+   "@UserBusinessStatus (String)",
+   "@UserBusinessType (String)",
+   "@UserOwnerName (String)",
+   "@UserTaxNo (String)",
+   "@dSumKum (Number)",
+   "@dSumVat (Number)",
+   "@sDate (String)",
+   "@sIssueDate (String)",
+   "@sPeriod (String)"
+  ]
+ },
+ {
+  "rpt": "CashBook.rpt",
+  "tables": [
+   "CashBookTable"
+  ],
+  "funcs": [
+   "008b5ff0"
+  ],
+  "params": [
+   "@CustomerName (String)",
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "Customer.rpt",
+  "tables": [
+   "CustomerTable"
+  ],
+  "funcs": [
+   "00800f20"
+  ],
+  "params": null
+ },
+ {
+  "rpt": "Customer1.rpt",
+  "tables": [],
+  "funcs": [],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "CustomerBook.rpt",
+  "tables": [
+   "CustomerBookPrintTable"
+  ],
+  "funcs": [
+   "007479a0",
+   "0074ea20",
+   "00800f20"
+  ],
+  "params": [
+   "@CustomerCompanyName (String)",
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "CustomerSummary.rpt",
+  "tables": [
+   "CustomerSummaryPrintTable"
+  ],
+  "funcs": [
+   "008a9f20"
+  ],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "DailyBalance.rpt",
+  "tables": [
+   "DailyBalanceTable"
+  ],
+  "funcs": [
+   "0078b300",
+   "0078c6b0",
+   "0078e850",
+   "00800f20"
+  ],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "DailyBalanceSummary.rpt",
+  "tables": [
+   "DailyBalanceSummaryTable"
+  ],
+  "funcs": [
+   "0078d4d0",
+   "00800f20"
+  ],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "DailyDetailBalance.rpt",
+  "tables": [
+   "DailyDetailBalancePrintTable"
+  ],
+  "funcs": [
+   "00781070"
+  ],
+  "params": [
+   "@Benefit (String)",
+   "@BenefitRate (String)",
+   "@BuyTax (String)",
+   "@BuyingTotal (String)",
+   "@Cost (String)",
+   "@FromDate (String)",
+   "@Payment (String)",
+   "@Receipt (String)",
+   "@SalesTax (String)",
+   "@SalesTotal (String)",
+   "@Title (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "DemandEstimate.rpt",
+  "tables": [
+   "EstimateTable"
+  ],
+  "funcs": [
+   "006f6fc0",
+   "00800f20"
+  ],
+  "params": [
+   "@CustomerName (String)",
+   "@Remark1 (String)",
+   "@Remark2 (String)",
+   "@Remark3 (String)",
+   "@Remark4 (String)",
+   "@SlipDate (String)",
+   "@UserAddress (String)",
+   "@UserBusinessStatus (String)",
+   "@UserBusinessType (String)",
+   "@UserFaxNo (String)",
+   "@UserOwnerName (String)",
+   "@UserTaxNo (String)",
+   "@UserTelNo (String)"
+  ]
+ },
+ {
+  "rpt": "Estimate.rpt",
+  "tables": [
+   "EstimateTable"
+  ],
+  "funcs": [
+   "006f6fc0",
+   "00800f20"
+  ],
+  "params": [
+   "@Comments (String)",
+   "@CustomerName (String)",
+   "@FooterTotal (String)",
+   "@HeaderTotal (String)",
+   "@Remark1 (String)",
+   "@Remark2 (String)",
+   "@Remark3 (String)",
+   "@Remark4 (String)",
+   "@SlipDate (String)"
+  ]
+ },
+ {
+  "rpt": "Estimate01.rpt",
+  "tables": [],
+  "funcs": [],
+  "params": null
+ },
+ {
+  "rpt": "Estimate02.rpt",
+  "tables": [
+   "EstimateTable"
+  ],
+  "funcs": [
+   "006f6fc0",
+   "00800f20"
+  ],
+  "params": null
+ },
+ {
+  "rpt": "Estimate1.rpt",
+  "tables": [
+   "EstimateTable"
+  ],
+  "funcs": [
+   "006f6fc0",
+   "00800f20"
+  ],
+  "params": [
+   "@Comments (String)",
+   "@CustomerName (String)",
+   "@FooterTotal (String)",
+   "@HeaderTotal (String)",
+   "@Remark1 (String)",
+   "@Remark2 (String)",
+   "@Remark3 (String)",
+   "@Remark4 (String)",
+   "@SiteName (String)",
+   "@SlipDate (String)",
+   "@UserAddress (String)",
+   "@UserBusinessStatus (String)",
+   "@UserBusinessType (String)",
+   "@UserFaxNo (String)",
+   "@UserOwnerName (String)",
+   "@UserTaxNo (String)",
+   "@UserTelNo (String)"
+  ]
+ },
+ {
+  "rpt": "Estimate111.rpt",
+  "tables": [
+   "EstimateTable"
+  ],
+  "funcs": [
+   "006f6fc0",
+   "00800f20"
+  ],
+  "params": [
+   "@Comments (String)",
+   "@CustomerName (String)",
+   "@FooterTotal (String)",
+   "@HeaderTotal (String)",
+   "@Remark1 (String)",
+   "@Remark2 (String)",
+   "@Remark3 (String)",
+   "@Remark4 (String)",
+   "@SiteName (String)",
+   "@SlipDate (String)",
+   "@UserAddress (String)",
+   "@UserBusinessStatus (String)",
+   "@UserBusinessType (String)",
+   "@UserFaxNo (String)",
+   "@UserOwnerName (String)",
+   "@UserTaxNo (String)",
+   "@UserTelNo (String)"
+  ]
+ },
+ {
+  "rpt": "Estimate2.rpt",
+  "tables": [
+   "EstimateTable"
+  ],
+  "funcs": [
+   "006f6fc0",
+   "00800f20"
+  ],
+  "params": [
+   "@Comments (String)",
+   "@CustomerName (String)",
+   "@FooterTotal (String)",
+   "@HeaderTotal (String)",
+   "@Remark1 (String)",
+   "@Remark2 (String)",
+   "@Remark3 (String)",
+   "@Remark4 (String)",
+   "@SiteName (String)",
+   "@SlipDate (String)",
+   "@UserAddress (String)",
+   "@UserBusinessStatus (String)",
+   "@UserBusinessType (String)",
+   "@UserFaxNo (String)",
+   "@UserOwnerName (String)",
+   "@UserTaxNo (String)",
+   "@UserTelNo (String)"
+  ]
+ },
+ {
+  "rpt": "Gaego.rpt",
+  "tables": [
+   "GaegoTable"
+  ],
+  "funcs": [
+   "007c36c0",
+   "007c6e00",
+   "007c8760"
+  ],
+  "params": null
+ },
+ {
+  "rpt": "Order.rpt",
+  "tables": [
+   "OrderTable"
+  ],
+  "funcs": [
+   "006aaf80",
+   "00800f20"
+  ],
+  "params": [
+   "@CustomerName (String)",
+   "@Remark1 (String)",
+   "@Remark2 (String)",
+   "@Remark3 (String)",
+   "@Remark4 (String)",
+   "@SlipDate (String)",
+   "@UserAddress (String)",
+   "@UserBusinessStatus (String)",
+   "@UserBusinessType (String)",
+   "@UserFaxNo (String)",
+   "@UserOwnerName (String)",
+   "@UserTaxNo (String)",
+   "@UserTelNo (String)"
+  ]
+ },
+ {
+  "rpt": "PRODUCTS.RPT",
+  "tables": [
+   "ProductTable"
+  ],
+  "funcs": [],
+  "params": null
+ },
+ {
+  "rpt": "PaymentBill.rpt",
+  "tables": [
+   "ReceiptBillTable"
+  ],
+  "funcs": [
+   "007e2140",
+   "007ec100"
+  ],
+  "params": null
+ },
+ {
+  "rpt": "PostBook.rpt",
+  "tables": [
+   "PostBookTable"
+  ],
+  "funcs": [
+   "0072b180",
+   "0072bcf0",
+   "00800f20"
+  ],
+  "params": [
+   "@CustomerCompanyName (String)",
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "PostBook대호.rpt",
+  "tables": [
+   "PostBookTable"
+  ],
+  "funcs": [
+   "0072b180",
+   "0072bcf0",
+   "00800f20"
+  ],
+  "params": [
+   "@CustomerCompanyName (String)",
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "PriceList.rpt",
+  "tables": [
+   "PriceListTable"
+  ],
+  "funcs": [
+   "006fe2a0",
+   "00800f20"
+  ],
+  "params": null
+ },
+ {
+  "rpt": "ProductsList.rpt",
+  "tables": [],
+  "funcs": [],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "QuarterSummary.rpt",
+  "tables": [
+   "QuarterSummaryTable"
+  ],
+  "funcs": [
+   "00798e20",
+   "00799120",
+   "007a2890",
+   "007a9560",
+   "007aa130",
+   "007abf80",
+   "007b1380"
+  ],
+  "params": [
+   "@FromDate (String)",
+   "@Month1Receipt (String)",
+   "@Month1Sale (String)",
+   "@Month2Sale (String)",
+   "@Month3Sale (String)",
+   "@Month4Receipt (String)",
+   "@Title (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "ReceiptBill.rpt",
+  "tables": [
+   "ReceiptBillTable"
+  ],
+  "funcs": [
+   "007e2140",
+   "007ec100"
+  ],
+  "params": null
+ },
+ {
+  "rpt": "ReceiptPaymentSummary.rpt",
+  "tables": [
+   "ReceiptPaymentSummaryTable"
+  ],
+  "funcs": [
+   "0079b150"
+  ],
+  "params": [
+   "@FromDate (String)",
+   "@Title (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "RequestEstimate.rpt",
+  "tables": [
+   "OrderTable"
+  ],
+  "funcs": [
+   "006aaf80",
+   "00800f20"
+  ],
+  "params": [
+   "@CustomerName (String)",
+   "@Remark1 (String)",
+   "@Remark2 (String)",
+   "@Remark3 (String)",
+   "@Remark4 (String)",
+   "@SlipDate (String)",
+   "@UserAddress (String)",
+   "@UserBusinessStatus (String)",
+   "@UserBusinessType (String)",
+   "@UserFaxNo (String)",
+   "@UserOwnerName (String)",
+   "@UserTaxNo (String)",
+   "@UserTelNo (String)"
+  ]
+ },
+ {
+  "rpt": "SaleTaxList.rpt",
+  "tables": [],
+  "funcs": [],
+  "params": [
+   "@dSumKum (Number)",
+   "@dSumVat (Number)",
+   "@sDate (String)",
+   "@sIssueDate (String)",
+   "@sPeriod (String)",
+   "@sTraderCount (Number)"
+  ]
+ },
+ {
+  "rpt": "SalesQuery.rpt",
+  "tables": [
+   "SalesQueryPrintTable"
+  ],
+  "funcs": [
+   "0075ac10",
+   "00800f20"
+  ],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "SalesSummary.rpt",
+  "tables": [
+   "SalesSummaryPrintTable"
+  ],
+  "funcs": [
+   "007bc350"
+  ],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "SiteBook.rpt",
+  "tables": [
+   "SiteBookTable"
+  ],
+  "funcs": [],
+  "params": [
+   "@CustomerCompanyName (String)",
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "Slip.rpt",
+  "tables": [
+   "SlipTable"
+  ],
+  "funcs": [
+   "00800f20"
+  ],
+  "params": null
+ },
+ {
+  "rpt": "Subul.rpt",
+  "tables": [],
+  "funcs": [],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "SubulSummary.rpt",
+  "tables": [],
+  "funcs": [],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "SubulSummaryAmount.rpt",
+  "tables": [],
+  "funcs": [],
+  "params": [
+   "@FromDate (String)",
+   "@FromProductsName (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "TaxBook.rpt",
+  "tables": [
+   "TaxBookTable"
+  ],
+  "funcs": [
+   "0073ac20",
+   "0073d0c0",
+   "00800f20"
+  ],
+  "params": [
+   "@FromDate (String)",
+   "@ToDate (String)"
+  ]
+ },
+ {
+  "rpt": "TaxList.rpt",
+  "tables": [
+   "TaxListTable"
+  ],
+  "funcs": [],
+  "params": [
+   "@Title (String)",
+   "@UserAddress (String)",
+   "@UserBusinessStatus (String)",
+   "@UserBusinessType (String)",
+   "@UserOwnerName (String)",
+   "@UserTaxNo (String)",
+   "@dSumKum (Number)",
+   "@dSumVat (Number)",
+   "@dTotalSheet (String)",
+   "@kind (String)",
+   "@sDate (String)",
+   "@sIssueDate (String)",
+   "@sPeriod (String)"
+  ]
+ },
+ {
+  "rpt": "TelBook.rpt",
+  "tables": [
+   "TelBookTable"
+  ],
+  "funcs": [],
+  "params": null
+ },
+ {
+  "rpt": "Telephones.rpt",
+  "tables": [
+   "TelephonesTable"
+  ],
+  "funcs": [
+   "00699500"
+  ],
+  "params": null
+ },
+ {
+  "rpt": "products1.rpt",
+  "tables": [],
+  "funcs": [],
+  "params": null
+ },
+ {
+  "rpt": "rptSlipStatus.rpt",
+  "tables": [],
+  "funcs": [],
+  "params": null
+ }
+]

@@ -11,12 +11,28 @@ export interface Product {
   sellingPrice2?: number;// 출고가 (단가2)
   sellingPrice3?: number;// 출고가 (단가3)
   discountRate?: number; // 할인율 (%)
+  applyDiscount?: boolean; // 할인율 적용 여부 (오케이세일 ChkDiscountRate)
+  maker?: string;        // 메이커
+  modelNo?: string;      // 모델 No
+  color?: string;        // 색상
+  retailPrice?: number;  // 소비자가
+  purchasePrice?: number; // 매입단가
+  lastPurchaseDate?: string; // 최종 매입일
+  lastPurchasePrice?: number; // 최종 매입가
+  supplier2?: string;          // 최종매입처2(원본 SupplierID2) — 직전 매입처
+  lastPurchaseDate2?: string;  // 최종매입일2(PurchaseDate2)
+  lastPurchasePrice2?: number; // 최종매입가2(PurchasePrice2)
+  openingStock?: number;       // 이월재고(원본 Stock S00) — 사용 이전/전년도 말 재고
+  storageLocation?: string; // 보관 위치
+  taxType?: 'taxable' | 'exempt'; // 과세 여부
+  stockManaged?: boolean; // 재고관리 여부
   currentStock: number;  // 현재고
   safeStock: number;     // 적정재고
   category: string;      // 카테고리 대분류
   category2?: string;    // 카테고리 중분류
   category3?: string;    // 카테고리 소분류
   barcode?: string;
+  nickName?: string;     // 다른명칭(약어·관리코드, 원본 NicName)
   supplier?: string;
   memo?: string;
 }
@@ -50,8 +66,25 @@ export interface Customer {
   closingDay?: number;   // 마감일 (예: 25일, 30일)
   priceTier?: 1 | 2 | 3; // 단가 등급 (1, 2, 3)
   email?: string;
+  creditLimit?: number;  // 여신한도액
+  salesman?: string;     // 영업사원
+  grade?: string;        // 고객등급
+  minMarginRate?: number; // 최소마진율 (%)
+  contactName?: string;  // 담당자
+  contactDuty?: string;  // 직책
+  homepage?: string;
+  zip?: string;          // 우편번호
+  bank?: string;         // 은행
+  accountHolder?: string; // 예금주
+  account?: string;      // 계좌번호
   taxEmail?: string;     // 세금계산서 전용 이메일
   memo?: string;
+  category?: string;     // 구분(거래등급·거래처구분, 원본 Category)
+  vatType?: 'incl' | 'excl' | 'none'; // 부가세 적용(원본 TaxType 1.포함 2.별도 3.없음) — 전표 입력 때 기본 부가세 모드
+  tel2?: string;         // 전화2(직통, 원본 TelephoneNo2)
+  tel3?: string;         // 전화3(담당자, 원본 TelephoneNo3)
+  title?: string;        // 우편발송용 존칭(원본 Title)
+  address2?: string;     // 주소 상세(원본 Address1-1)
   post?: string;         // 메인 현장명
   sites?: CustomerSite[]; // 거래처 산하 복수 공사현장 (1:N)
 }
@@ -68,6 +101,7 @@ export interface SlipItem {
   supplyAmount: number;
   taxAmount: number;
   totalAmount: number;
+  discountRate?: number; // 할인율(%) — 협정가×(100+할인율)/100 로 단가 계산(원본 F4 협정)
   memo?: string;
 }
 
@@ -100,6 +134,7 @@ export interface Slip {
   paidAmount: number;       // 결제(입금/지급) 금액
   unpaidAmount: number;     // 잔액/미수금
   prevReceivables?: number; // 거래 전 미수잔액
+  showPrevBalance?: boolean; // 명세표에 전잔액 출력(원본 «전잔액출력» 체크, 미지정=출력)
   memo?: string;
   createdAt: string;
   deliveryStatus?: 'none' | 'pending' | 'shipping' | 'delivered';
@@ -151,6 +186,7 @@ export interface SystemConfig {
   };
   cloudSyncEnabled: boolean;
   syncIntervalSec: number;
+  openingBalances?: { asOf: string; byCustomer: Record<string, number> }; // 기초 미수(+)·미지급(−) 잔액 — 도입 시점 입력
   lastSyncTime: string;
   companyInfo: {
     name: string;
@@ -164,17 +200,32 @@ export interface SystemConfig {
   };
 }
 
+export type BillStatus = '보유' | '결제' | '할인' | '부도' | '배서' | '미결제' | '정상' | '결제완료'; // 정상·결제완료는 이관 전 옛 표기(정상=보유/미결제, 결제완료=결제)
+
 export interface Bill {
   id: string;
   billNo: string;
   billKind: '받을어음' | '지급어음';
   amount: number;
   issueDate: string;
-  dueDate: string;
-  customerName: string;
-  bank: string;
-  status: '정상' | '결제완료' | '부도' | '할인';
+  dueDate: string;        // 만기일(원본 FallDate)
+  customerName: string;   // 받을어음=받은 거래처(ReceiptCustomerName), 지급어음=지급 거래처(PayCustomerName)
+  bank: string;           // 발행은행(IssueBank)
+  status: BillStatus;     // 받을어음: 보유·결제·할인·부도·배서 / 지급어음: 미결제·결제 (원본 BillStatusMode 1~6)
   memo?: string;
+  receiptDate?: string;   // 수취일(ReceiptDate)
+  issuer?: string;        // 발행인(IssuerName)
+  issueSite?: string;     // 발행지(IssueSite)
+  payBank?: string;       // 결제은행(PayBank)
+  payCustomerName?: string; // 배서처(받을어음을 넘긴 곳)
+  payDate?: string;       // 결제일·배서일(PayDate)
+  discountDate?: string;
+  discountCustomer?: string;
+  discountRate?: number;
+  discountPeriod?: number;
+  discountAmount?: number;
+  dishonorDate?: string;  // 부도일
+  releaseDishonorDate?: string; // 부도 해제일
 }
 
 export interface TaxInvoice {
@@ -210,6 +261,8 @@ export interface CollectionPayment {
   customerName: string;
   method: 'cash' | 'bank' | 'bill'; // 현금, 통장, 어음
   amount: number;
+  discount?: number;   // 할인액(원본 수금지급 «할인액»)
+  billNo?: string;     // 어음번호(어음 수금·지급 때)
   prevBalance: number;
   currentBalance: number;
   memo?: string;

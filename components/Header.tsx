@@ -17,7 +17,8 @@ import {
   Wallet,
   FileCheck,
   CreditCard,
-  Globe
+  Globe,
+  BookOpen
 } from 'lucide-react';
 import type { OSTheme } from '@/types';
 import { RemoteAccessModal } from './RemoteAccessModal';
@@ -52,7 +53,7 @@ export function Header({
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState<boolean>(false);
   const tabs = [
     { id: 'slips', label: '전표입력 / 거래원장', icon: FileText, hotkey: 'F2' },
-    { id: 'products', label: '품목관리 (1.1만종)', icon: Package, hotkey: 'F3' },
+    { id: 'products', label: '품목관리', icon: Package, hotkey: 'F3' },
     { id: 'customers', label: '거래처관리', icon: Users, hotkey: 'F4' },
     { id: 'collections', label: '수금 / 지급관리', icon: Wallet, hotkey: 'F5' },
     { id: 'tax_invoices', label: '세금계산서', icon: FileCheck, hotkey: 'F6' },
@@ -60,6 +61,7 @@ export function Header({
     { id: 'delivery', label: '출고 / 배송관리', icon: Truck, hotkey: 'F8' },
     { id: 'inventory', label: '재고수불부', icon: Database, hotkey: 'F9' },
     { id: 'mdb_tool', label: 'MDB 데이터도구', icon: HardDrive, hotkey: 'F10' },
+    { id: 'ledgers', label: '장부 / 집계표', icon: BookOpen, hotkey: 'F12' },
     { id: 'ini_sync', label: '환경설정 / 동기화', icon: Sliders, hotkey: 'F11' }
   ];
 

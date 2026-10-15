@@ -1,18 +1,17 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { loadStore, saveStore } from '@/lib/store';
+import { supabase } from '@/lib/supabase';
 import type { Bill } from '@/types';
 
 export async function GET() {
-  const store = loadStore();
-  return NextResponse.json(store.bills || []);
+  const { data, error } = await supabase.from('bills').select('*').order('issueDate', { ascending: false });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data || []);
 }
 
 export async function POST(req: Request) {
   try {
     const body: Partial<Bill> = await req.json();
-    const store = loadStore();
-
     const newBill: Bill = {
       id: `b-${Date.now()}`,
       billNo: body.billNo || `BILL-${Date.now().toString().slice(-6)}`,
@@ -22,13 +21,13 @@ export async function POST(req: Request) {
       dueDate: body.dueDate || new Date().toISOString().slice(0, 10),
       customerName: body.customerName || '미지정 거래처',
       bank: body.bank || '국민은행',
-      status: body.status || '정상',
-      memo: body.memo || ''
+      status: body.status || (body.billKind === '지급어음' ? '미결제' : '보유'),
+      memo: body.memo || '',
+      ...Object.fromEntries(['receiptDate', 'issuer', 'issueSite', 'payBank', 'payCustomerName', 'payDate'].filter(k => (body as Record<string, unknown>)[k]).map(k => [k, (body as Record<string, unknown>)[k]]))
     };
 
-    if (!store.bills) store.bills = [];
-    store.bills.unshift(newBill);
-    saveStore(store);
+    const { error } = await supabase.from('bills').insert(newBill);
+    if (error) throw new Error(error.message);
 
     return NextResponse.json(newBill, { status: 201 });
   } catch (error: any) {

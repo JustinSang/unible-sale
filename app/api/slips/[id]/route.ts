@@ -1,43 +1,38 @@
 import { NextResponse } from 'next/server';
-import { loadStore, saveStore } from '@/lib/store';
+import { supabase } from '@/lib/supabase';
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const store = loadStore();
 
-    const slip = store.slips.find(s => s.id === id);
+    const { data: slip } = await supabase.from('slips').select('*').eq('id', id).maybeSingle();
     if (!slip) {
       return NextResponse.json({ error: '전표를 찾을 수 없습니다.' }, { status: 404 });
     }
 
-    // Rollback customer receivables
+    // Rollback customer receivables (매출 외상분)
     if (slip.slipType === 'SALES') {
-      const cust = store.customers.find(c => c.id === slip.customerId);
+      const { data: cust } = await supabase.from('customers').select('receivables').eq('id', slip.customerId).maybeSingle();
       if (cust) {
-        cust.receivables = Math.max(0, (cust.receivables || 0) - slip.unpaidAmount);
+        const next = Math.max(0, (cust.receivables || 0) - (slip.unpaidAmount || 0));
+        await supabase.from('customers').update({ receivables: next }).eq('id', slip.customerId);
       }
     }
 
-    // Rollback stock
-    slip.items.forEach(item => {
-      const prod = store.products.find(p => p.id === item.productId || p.code === item.productCode);
-      if (prod) {
-        if (slip.slipType === 'SALES') {
-          prod.currentStock += item.qty;
-        } else if (slip.slipType === 'PURCHASE') {
-          prod.currentStock -= item.qty;
-        }
-      }
-    });
+    // Rollback stock (전표 저장 때와 반대 방향)
+    for (const item of slip.items || []) {
+      if (!item.productId) continue;
+      const st = slip.slipType;
+      const delta = st === 'SALES' || st === 'RETURN_OUT' ? item.qty : st === 'PURCHASE' || st === 'RETURN_IN' ? -item.qty : 0;
+      if (delta === 0) continue;
+      const { data: p } = await supabase.from('products').select('currentStock').eq('id', item.productId).maybeSingle();
+      if (p) await supabase.from('products').update({ currentStock: p.currentStock + delta }).eq('id', item.productId);
+    }
 
-    // Remove deliveries associated with this slip
-    store.deliveries = store.deliveries.filter(d => d.slipId !== id);
+    await supabase.from('deliveries').delete().eq('slipId', id);
+    const { error } = await supabase.from('slips').delete().eq('id', id);
+    if (error) throw new Error(error.message);
 
-    // Remove slip
-    store.slips = store.slips.filter(s => s.id !== id);
-
-    saveStore(store);
     return NextResponse.json({ success: true, id });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || '전표 삭제 실패' }, { status: 500 });

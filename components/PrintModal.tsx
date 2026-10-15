@@ -1,5 +1,6 @@
 'use client';
 
+import { displayProductName } from '@/lib/productName';
 import React, { useState } from 'react';
 import { Printer, X, FileText, Receipt } from 'lucide-react';
 import type { Slip, SystemConfig, Customer } from '@/types';
@@ -227,7 +228,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
           if (idx >= 15) return; // Template only supports up to 15 items
           const row = 11 + idx;
           ws.getCell(`B${row}`).value = idx + 1;
-          ws.getCell(`C${row}`).value = item.productName;
+          ws.getCell(`C${row}`).value = displayProductName(item.productName);
           ws.getCell(`E${row}`).value = item.spec;
           ws.getCell(`F${row}`).value = item.qty;
           ws.getCell(`G${row}`).value = item.unit;
@@ -264,7 +265,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
       
       const wsData = slip.items.map((item, idx) => ({
         'No': idx + 1,
-        '품목명': item.productName,
+        '품목명': displayProductName(item.productName),
         '규격': item.spec,
         '단위': item.unit,
         '수량': item.qty,
@@ -505,7 +506,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                   {slip.items.map((item, idx) => (
                     <tr key={item.id} className="border-b border-slate-400">
                       <td className="border-r border-slate-900 py-1.5 px-2 text-center font-mono">{idx + 1}</td>
-                      <td className="border-r border-slate-900 py-1.5 px-2 font-medium">{item.productName}</td>
+                      <td className="border-r border-slate-900 py-1.5 px-2 font-medium">{displayProductName(item.productName)}</td>
                       <td className="border-r border-slate-900 py-1.5 px-2 font-mono text-[10px]">{item.spec}</td>
                       <td className="border-r border-slate-900 py-1.5 px-2 text-center">{item.unit}</td>
                       <td className="border-r border-slate-900 py-1.5 px-2 text-right font-mono font-bold">{item.qty}</td>
@@ -649,7 +650,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                   {slip.items.map((item, idx) => (
                     <tr key={item.id} className="border-b border-slate-400">
                       <td className="border-r border-slate-900 py-2 px-1 text-center font-mono">{idx + 1}</td>
-                      <td className="border-r border-slate-900 py-2 px-2 font-medium">{item.productName}</td>
+                      <td className="border-r border-slate-900 py-2 px-2 font-medium">{displayProductName(item.productName)}</td>
                       <td className="border-r border-slate-900 py-2 px-2 font-mono text-[10px]">{item.spec}</td>
                       <td className="border-r border-slate-900 py-2 px-1 text-right font-mono font-bold">{item.qty}</td>
                       <td className="border-r border-slate-900 py-2 px-1 text-center">{item.unit}</td>
@@ -834,7 +835,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                         {idx + 1}
                       </td>
                       <td className="border border-slate-300 py-1.5 px-2 font-medium">
-                        {item.productName}
+                        {displayProductName(item.productName)}
                       </td>
                       <td className="border border-slate-300 py-1.5 px-2 font-mono text-[10px]">
                         {item.spec}
@@ -908,12 +909,14 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                   {!hidePriceColumns ? (
                     <table className="w-full">
                       <tbody>
-                        <tr>
-                          <th className="py-0.5 text-left text-slate-500">전잔액:</th>
-                          <td className="text-right font-mono font-bold">
-                            {formatKRW(slip.prevReceivables || 0)}
-                          </td>
-                        </tr>
+                        {slip.showPrevBalance !== false && (
+                          <tr>
+                            <th className="py-0.5 text-left text-slate-500">전잔액:</th>
+                            <td className="text-right font-mono font-bold">
+                              {formatKRW(slip.prevReceivables || 0)}
+                            </td>
+                          </tr>
+                        )}
                         <tr>
                           <th className="py-0.5 text-left text-slate-500">금회 총액:</th>
                           <td className="text-right font-mono font-bold text-blue-800">
@@ -926,12 +929,14 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                             {formatKRW(slip.paidAmount || 0)}
                           </td>
                         </tr>
-                        <tr className="border-t border-slate-300">
-                          <th className="py-1 text-left font-bold">거래 후 잔액:</th>
-                          <td className="text-right font-mono font-bold text-rose-700 text-xs">
-                            {formatKRW((slip.prevReceivables || 0) + slip.unpaidAmount)}
-                          </td>
-                        </tr>
+                        {slip.showPrevBalance !== false && (
+                          <tr className="border-t border-slate-300">
+                            <th className="py-1 text-left font-bold">거래 후 잔액:</th>
+                            <td className="text-right font-mono font-bold text-rose-700 text-xs">
+                              {formatKRW((slip.prevReceivables || 0) + slip.unpaidAmount)}
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   ) : (
@@ -1013,7 +1018,7 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                 </div>
                 {slip.items.map(item => (
                   <div key={item.id} className="py-1">
-                    <div className="font-bold truncate">{item.productName}</div>
+                    <div className="font-bold truncate">{displayProductName(item.productName)}</div>
                     <div className="flex justify-between text-[10px] text-slate-700">
                       <span>{item.spec}</span>
                       <span>
@@ -1049,10 +1054,12 @@ export function PrintModal({ slip, config, customer, customers = [], isOpen, onC
                   <span>금회입금:</span>
                   <span>{slip.paidAmount.toLocaleString('ko-KR')}원</span>
                 </div>
-                <div className="flex justify-between font-bold">
-                  <span>미수잔액:</span>
-                  <span>{((slip.prevReceivables || 0) + slip.unpaidAmount).toLocaleString('ko-KR')}원</span>
-                </div>
+                {slip.showPrevBalance !== false && (
+                  <div className="flex justify-between font-bold">
+                    <span>미수잔액:</span>
+                    <span>{((slip.prevReceivables || 0) + slip.unpaidAmount).toLocaleString('ko-KR')}원</span>
+                  </div>
+                )}
               </div>
 
               <div className="pt-3 text-center text-[10px] border-t border-dashed border-black">

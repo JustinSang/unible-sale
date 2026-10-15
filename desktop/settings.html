@@ -1,0 +1,24 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>서버 주소 설정</title>
+<style>:root{--bg:#f8fafc;--fg:#0f172a;--mut:#64748b;--card:#fff;--bd:#cbd5e1;--ac:#1d4ed8}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1220;--fg:#e5e7eb;--mut:#94a3b8;--card:#111a2e;--bd:#2b3a57;--ac:#60a5fa}}
+body{margin:0;padding:24px;background:var(--bg);color:var(--fg);font:14px/1.6 -apple-system,"Segoe UI","Malgun Gothic",sans-serif}
+h1{font-size:18px;margin:0 0 4px}p{margin:4px 0 14px;color:var(--mut)}label{display:flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--bd);border-radius:10px;background:var(--card);margin-bottom:8px;cursor:pointer}
+input[type=text]{width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--fg);font:inherit}
+.row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}button{font:inherit;padding:9px 16px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--fg);cursor:pointer}button.pri{background:var(--ac);border-color:var(--ac);color:#fff}#e{color:#dc2626;min-height:22px;margin-top:6px}</style></head><body>
+<h1>서버 주소 설정</h1><p>앱이 열 UNIBLE SALE 서버를 고릅니다. 바꾸면 바로 새로 불러옵니다.</p>
+<div id="list"></div>
+<label><input type="radio" name="p" value="__custom"> 직접 입력</label>
+<input type="text" id="custom" placeholder="예) https://unible-sale.vercel.app 또는 192.168.0.10:3000">
+<div id="e"></div>
+<div class="row"><button id="cancel">닫기</button><button class="pri" id="save">저장하고 열기</button></div>
+<script>
+const q=new URLSearchParams(location.search);const cur=q.get('current')||'';const presets=JSON.parse(q.get('presets')||'{}');
+const list=document.getElementById('list');let matched=false;
+for(const [k,v] of Object.entries(presets)){const l=document.createElement('label');const r=document.createElement('input');r.type='radio';r.name='p';r.value=v;if(v===cur){r.checked=true;matched=true}
+l.append(r,document.createTextNode(' '+k));list.append(l)}
+const custom=document.getElementById('custom');if(!matched){document.querySelector('input[value="__custom"]').checked=true;custom.value=cur}
+custom.addEventListener('focus',()=>{document.querySelector('input[value="__custom"]').checked=true});
+document.getElementById('cancel').onclick=()=>window.close();
+document.getElementById('save').onclick=async()=>{const sel=document.querySelector('input[name=p]:checked');const v=!sel||sel.value==='__custom'?custom.value:sel.value;const r=await window.unibleDesktop.setUrl(v);
+if(r.ok)window.close();else document.getElementById('e').textContent=r.error};
+</script></body></html>

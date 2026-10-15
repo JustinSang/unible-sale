@@ -10,6 +10,7 @@ import { TaxInvoiceView } from '@/components/TaxInvoiceView';
 import { BillManagementView } from '@/components/BillManagementView';
 import { DeliveryView } from '@/components/DeliveryView';
 import { InventoryLedgerView } from '@/components/InventoryLedgerView';
+import { LedgerReportsView } from '@/components/LedgerReportsView';
 import { MdbAnalyzerView } from '@/components/MdbAnalyzerView';
 import { CloudSyncAndIniView } from '@/components/CloudSyncAndIniView';
 import { PrintModal } from '@/components/PrintModal';
@@ -75,6 +76,9 @@ export default function App() {
   const isPrintOpenRef = useRef(isPrintOpen);
   useEffect(() => { isPrintOpenRef.current = isPrintOpen; }, [isPrintOpen]);
 
+  const seenCountsRef = useRef<string>('');
+  const [customerPrices, setCustomerPrices] = useState<Record<string, Record<string, any>>>({});
+
   // Fetch full data from server API (supports silent background sync)
   const fetchFullData = useCallback(async (silent = false) => {
     try {
@@ -85,6 +89,8 @@ export default function App() {
         setProducts(data.products || []);
         setCustomers(data.customers || []);
         setSlips(data.slips || []);
+        setCustomerPrices(data.customerPrices || {});
+        seenCountsRef.current = `${(data.products || []).length}|${(data.customers || []).length}|${(data.slips || []).length}`;
         setDeliveries(data.deliveries || []);
         setInventoryLogs(data.inventoryLogs || []);
         setBills(data.bills || []);
@@ -109,6 +115,19 @@ export default function App() {
     }
   }, []);
 
+  // 배경 동기화는 건수만 확인하고, 달라졌을 때만 전체(약 9MB)를 다시 받는다 — 무료 DB 전송 한도 보호.
+  const checkAndSync = useCallback(async () => {
+    if (document.visibilityState === 'hidden') return;
+    try {
+      const res = await fetch('/api/sync-check');
+      if (!res.ok) return;
+      const c = await res.json();
+      if (`${c.products}|${c.customers}|${c.slips}` !== seenCountsRef.current) await fetchFullData(true);
+    } catch {
+      setOnline(false);
+    }
+  }, [fetchFullData]);
+
   // Initial load
   useEffect(() => {
     fetchFullData(false);
@@ -123,7 +142,7 @@ export default function App() {
     try {
       eventSource = new EventSource('/api/events');
       eventSource.addEventListener('update', () => {
-        if (!isPrintOpenRef.current) fetchFullData(true);
+        if (!isPrintOpenRef.current) checkAndSync();
       });
       eventSource.onerror = () => {};
     } catch (e) {
@@ -131,9 +150,9 @@ export default function App() {
     }
 
     // 1) Periodic background polling fallback (every 15 seconds, suppressed when modal is open)
-    const intervalSec = Math.max(15, config.syncIntervalSec || 15);
+    const intervalSec = Math.max(60, config.syncIntervalSec || 60);
     const interval = setInterval(() => {
-      if (!isPrintOpenRef.current) fetchFullData(true);
+      if (!isPrintOpenRef.current) checkAndSync();
     }, intervalSec * 1000);
 
     // 2) Focus & visibility sync — DEBOUNCED and suppressed when modal open
@@ -141,20 +160,20 @@ export default function App() {
     const handleFocus = () => {
       if (isPrintOpenRef.current) return; // Don't sync while modal is open
       if (focusTimer) clearTimeout(focusTimer);
-      focusTimer = setTimeout(() => fetchFullData(true), 2000); // 2s debounce
+      focusTimer = setTimeout(() => checkAndSync(), 2000); // 2s debounce
     };
     const handleVisibilityChange = () => {
       if (isPrintOpenRef.current) return;
       if (document.visibilityState === 'visible') {
         if (focusTimer) clearTimeout(focusTimer);
-        focusTimer = setTimeout(() => fetchFullData(true), 2000);
+        focusTimer = setTimeout(() => checkAndSync(), 2000);
       }
     };
 
     // 3) Network online/offline
     const handleOnline = () => {
       setOnline(true);
-      if (!isPrintOpenRef.current) fetchFullData(true);
+      if (!isPrintOpenRef.current) checkAndSync();
     };
     const handleOffline = () => {
       setOnline(false);
@@ -174,7 +193,7 @@ export default function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [config.syncIntervalSec, fetchFullData]);
+  }, [config.syncIntervalSec, fetchFullData, checkAndSync]);
 
   // Manual Sync trigger
   const handleManualSync = async () => {
@@ -246,6 +265,17 @@ export default function App() {
     }
   };
 
+  const handleUpdateBill = async (id: string, patch: Partial<Bill>) => {
+    const res = await fetch(`/api/bills/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || '어음 수정에 실패했습니다.'); }
+    setBills(prev => prev.map(b => (b.id === id ? { ...b, ...patch } : b)));
+  };
+  const handleDeleteBill = async (id: string) => {
+    const res = await fetch(`/api/bills/${id}`, { method: 'DELETE' });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || '어음 삭제에 실패했습니다.'); }
+    setBills(prev => prev.filter(b => b.id !== id));
+  };
+
   // Product Actions
   const handleAddProduct = async (p: Partial<Product>) => {
     const res = await fetch('/api/products', {
@@ -266,8 +296,11 @@ export default function App() {
       body: JSON.stringify(p)
     });
     if (res.ok) {
-      const updated = await res.json();
-      setProducts(prev => prev.map(prod => (prod.id === id ? updated : prod)));
+      // PUT 응답은 {success:true}뿐이라(품목 전체가 아님) 보낸 변경분을 기존 품목에 합친다 — 응답으로 바꾸면 수정한 품목이 깨져 화면이 멈춘다.
+      setProducts(prev => prev.map(prod => (prod.id === id ? { ...prod, ...p } : prod)));
+    } else {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.error || '품목 수정에 실패했습니다.');
     }
   };
 
@@ -291,6 +324,15 @@ export default function App() {
     }
   };
 
+  // 전표 입력 중 거래처 즉시 등록(원본: 거래처 목록에서 Insert) — 만든 거래처를 돌려줘 바로 선택하게 한다.
+  const handleQuickAddCustomer = async (c: Partial<Customer>): Promise<Customer | undefined> => {
+    const res = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
+    if (!res.ok) return undefined;
+    const newCust = await res.json();
+    setCustomers(prev => [newCust, ...prev]);
+    return newCust;
+  };
+
   const handleUpdateCustomer = async (id: string, c: Partial<Customer>) => {
     const res = await fetch(`/api/customers/${id}`, {
       method: 'PUT',
@@ -298,8 +340,10 @@ export default function App() {
       body: JSON.stringify(c)
     });
     if (res.ok) {
-      const updated = await res.json();
-      setCustomers(prev => prev.map(cust => (cust.id === id ? updated : cust)));
+      setCustomers(prev => prev.map(cust => (cust.id === id ? { ...cust, ...c } : cust)));
+    } else {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.error || '거래처 수정에 실패했습니다.');
     }
   };
 
@@ -446,6 +490,7 @@ export default function App() {
                 onDeleteSlip={handleDeleteSlip}
                 onOpenPrint={handleOpenPrint}
                 onNavigateTab={setCurrentTab}
+                onQuickAddCustomer={handleQuickAddCustomer}
                 osTheme={osTheme}
               />
             )}
@@ -498,6 +543,8 @@ export default function App() {
                 bills={bills}
                 customers={customers}
                 onAddBill={handleAddBill}
+                onUpdateBill={handleUpdateBill}
+                onDeleteBill={handleDeleteBill}
                 osTheme={osTheme}
               />
             )}
@@ -522,6 +569,18 @@ export default function App() {
             {currentTab === 'mdb_tool' && (
               <MdbAnalyzerView
                 onRefreshData={fetchFullData}
+                osTheme={osTheme}
+              />
+            )}
+
+            {currentTab === 'ledgers' && (
+              <LedgerReportsView
+                slips={slips}
+                collections={collections}
+                customers={customers}
+                taxInvoices={taxInvoices}
+                products={products}
+                customerPrices={customerPrices}
                 osTheme={osTheme}
               />
             )}

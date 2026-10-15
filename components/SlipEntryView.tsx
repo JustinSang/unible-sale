@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState, useMemo, useDeferredValue, useRef } from 'react';
+import React, { useState, useMemo, useDeferredValue, useRef, useEffect } from 'react';
+import { displayProductName } from '@/lib/productName';
 import {
+  Copy,
   Plus,
   Trash2,
   Printer,
@@ -26,6 +28,7 @@ interface SlipEntryViewProps {
   onDeleteSlip: (id: string) => Promise<void>;
   onOpenPrint: (slip: Slip) => void;
   onNavigateTab: (tab: string) => void;
+  onQuickAddCustomer?: (c: Partial<Customer>) => Promise<Customer | undefined>;
   osTheme: OSTheme;
 }
 
@@ -37,6 +40,7 @@ export function SlipEntryView({
   onDeleteSlip,
   onOpenPrint,
   onNavigateTab,
+  onQuickAddCustomer,
   osTheme
 }: SlipEntryViewProps) {
   // Today date format
@@ -45,9 +49,25 @@ export function SlipEntryView({
   // Form states
   const [slipDate, setSlipDate] = useState<string>(todayStr);
   const [slipType, setSlipType] = useState<SlipType>('SALES');
+  // 부가가치세 포함/별도 — 원본은 한 번 선택하면 계속 유지한다(매뉴얼 4쪽).
+  // 매뉴얼 캡처로 확정: «포함» = 합계 5,000에 세액 500을 얹어 총액 5,500 / «별도» = 세액 칸 비움(총액=합계). 원본 실전표가 100% 세액 0인 것은 거래를 «별도»로 쓰기 때문(기본값).
+  const [vatMode, setVatMode] = useState<'incl' | 'excl'>('excl');
+  useEffect(() => { try { const v = localStorage.getItem('oksale.vatMode2'); if (v === 'excl' || v === 'incl') setVatMode(v); } catch {} }, []);
+  // 단가소수점(0·1·2 순환)·전잔액출력·현재 선택 행(하단 정보행용)·견적서 참조사항 입력창 — 원본 전표작업 창의 같은 이름 항목
+  const [priceDecimals, setPriceDecimals] = useState<0 | 1 | 2>(0);
+  const [printPrevBalance, setPrintPrevBalance] = useState<boolean>(false);
+  const [focusRow, setFocusRow] = useState<number>(0);
+  const [refDialog, setRefDialog] = useState<string[] | null>(null);
+  const taxOf = (supply: number) => (vatMode === 'incl' ? Math.round(supply * 0.1) : 0);
   const [editingSlipId, setEditingSlipId] = useState<string | null>(null);
   const [linkedFromId, setLinkedFromId] = useState<string | null>(null);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(customers[0]?.id || '');
+  // 원본 전표작업은 빈 격자로 시작한다(품목을 미리 채우지 않는다) — 거래처도 고르기 전에는 비어 있다.
+  const blankRow = (): SlipItem => ({
+    id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    productId: '', productCode: '', productName: '', spec: '', unit: '', qty: 0, unitPrice: 0,
+    supplyAmount: 0, taxAmount: 0, totalAmount: 0, memo: ''
+  });
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [paymentType, setPaymentType] = useState<'credit' | 'cash' | 'card' | 'mixed'>('credit');
   const [paidAmount, setPaidAmount] = useState<number>(0);
   const [memo, setMemo] = useState<string>('');
@@ -223,22 +243,7 @@ export function SlipEntryView({
   };
 
   // Items grid rows
-  const [items, setItems] = useState<SlipItem[]>([
-    {
-      id: 'row-1',
-      productId: products[0]?.id || '',
-      productCode: products[0]?.code || '',
-      productName: products[0]?.name || '',
-      spec: products[0]?.spec || '',
-      unit: products[0]?.unit || 'BOX',
-      qty: 1,
-      unitPrice: products[0]?.sellingPrice || 0,
-      supplyAmount: products[0]?.sellingPrice || 0,
-      taxAmount: Math.round((products[0]?.sellingPrice || 0) * 0.1),
-      totalAmount: Math.round((products[0]?.sellingPrice || 0) * 1.1),
-      memo: ''
-    }
-  ]);
+  const [items, setItems] = useState<SlipItem[]>([blankRow()]);
 
   // History search filter
   const [historyStartDate, setHistoryStartDate] = useState<string>(() => {
@@ -255,6 +260,8 @@ export function SlipEntryView({
   const [isProductSearchOpen, setIsProductSearchOpen] = useState<boolean>(false);
   const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
   const [productSearchKeyword, setProductSearchKeyword] = useState<string>('');
+  // 원본 규격 목록 창: 같은 품명의 여러 규격에 수량을 한꺼번에 넣고 Esc로 확정한다.
+  const [modalQty, setModalQty] = useState<Record<string, string>>({});
   const deferredProductSearchKeyword = useDeferredValue(productSearchKeyword);
 
   // Customer instant search filter
@@ -273,16 +280,33 @@ export function SlipEntryView({
     );
   }, [customers, deferredCustomerSearchFilter]);
 
-  // Auto-select first match if current is not in filtered list
-  React.useEffect(() => {
-    if (deferredCustomerSearchFilter.trim() && filteredCustomersList.length > 0) {
-      const exists = filteredCustomersList.find(c => c.id === selectedCustomerId);
-      if (!exists) {
-        setSelectedCustomerId(filteredCustomersList[0].id);
-        setSelectedSiteId('');
-      }
-    }
-  }, [filteredCustomersList, deferredCustomerSearchFilter, selectedCustomerId]);
+  // 거래처 찾기(원본): 두 글자쯤 입력하고 Enter → 목록 → ↑↓·Enter로 선택, 목록에 없으면 Insert로 바로 등록.
+  // (예전의 «검색하면 첫 거래처 자동 선택»은 거래처별 단가를 불러오지 않아 없앴다 — 선택은 항상 handleCustomerChange를 거친다.)
+  const [custListOpen, setCustListOpen] = useState<boolean>(false);
+  const [custIdx, setCustIdx] = useState<number>(0);
+  const custMatches = filteredCustomersList.slice(0, 12);
+  const [quickCust, setQuickCust] = useState<null | { name: string; bizNumber: string; ceo: string; tel: string }>(null);
+  const pickCustomer = (id: string) => { handleCustomerChange(id); setCustListOpen(false); setCustomerSearchFilter(''); };
+  const handleCustKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!customerSearchFilter.trim()) return;
+      if (custListOpen && custMatches[custIdx]) pickCustomer(custMatches[custIdx].id);
+      else if (custMatches.length === 1) pickCustomer(custMatches[0].id);
+      else { setCustListOpen(true); setCustIdx(0); }
+    } else if (e.key === 'ArrowDown') { e.preventDefault(); setCustListOpen(true); setCustIdx(i => Math.min(i + 1, custMatches.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setCustIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Escape') setCustListOpen(false);
+    else if (e.key === 'Insert') { e.preventDefault(); setQuickCust({ name: customerSearchFilter.trim(), bizNumber: '', ceo: '', tel: '' }); }
+  };
+  const submitQuickCust = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!quickCust || !quickCust.name.trim()) { alert('거래처명을 입력하세요.'); return; }
+    if (!onQuickAddCustomer) { alert('이 화면에서는 거래처를 바로 등록할 수 없습니다. 거래처관리에서 등록하세요.'); return; }
+    const created = await onQuickAddCustomer({ name: quickCust.name.trim(), bizNumber: quickCust.bizNumber.trim(), ceo: quickCust.ceo.trim(), tel: quickCust.tel.trim() });
+    if (!created) { alert('거래처 등록에 실패했습니다.'); return; }
+    setQuickCust(null); pickCustomer(created.id); showToast(`거래처 «${created.name}»을(를) 등록하고 선택했습니다.`, 'success');
+  };
 
   const searchResults = useMemo(() => {
     if (!deferredProductSearchKeyword.trim()) {
@@ -408,6 +432,8 @@ export function SlipEntryView({
     setSelectedSiteAddress('');
     
     const targetCust = customers.find(c => c.id === cId);
+    // 거래처에 «부가세 적용»이 지정돼 있으면 그에 맞춰 이 전표의 포함/별도를 바꾼다(저장된 기본 선택은 건드리지 않음). 없음(면세)은 세액 없음.
+    if (targetCust?.vatType) handleVatModeChange(targetCust.vatType === 'incl' ? 'incl' : 'excl', false);
     if (targetCust) {
       setDeliveryAddress(targetCust.address || '');
       setDeliveryTel(targetCust.mobile || targetCust.tel || '');
@@ -427,24 +453,17 @@ export function SlipEntryView({
 
   // Helper to resolve product price based on customer's priceTier and agreed prices
   const getProductPrice = (prod: Product, targetCustomer: Customer | undefined = currentCustomer, targetSlipType: SlipType = slipType) => {
-    if (targetSlipType === 'PURCHASE' || targetSlipType === 'RETURN_IN') return prod.costPrice;
-    
+    // 원본: 매입(2)·반출(4)은 매입단가. 매출·반입 등은 «거래처별 이전 단가가 있으면 우선, 없으면 판매단가» — 0이면 «이 거래처 첫 거래».
+    if (targetSlipType === 'PURCHASE' || targetSlipType === 'RETURN_OUT') return prod.lastPurchasePrice || prod.costPrice;
+
+    const agreed = customerPrices[prod.code] || customerPrices[prod.id.replace(/^p-/, '')];
+    if (agreed && agreed.price1 > 0) return agreed.price1;
+
     const tier = targetCustomer?.priceTier || 1;
     let price = prod.sellingPrice;
     if (tier === 2 && prod.sellingPrice2) price = prod.sellingPrice2;
     if (tier === 3 && prod.sellingPrice3) price = prod.sellingPrice3;
-
-    // Apply discount rate if present
-    if (prod.discountRate && prod.discountRate > 0) {
-      price = price * (1 - prod.discountRate / 100);
-    }
-
-    const agreed = customerPrices[prod.code] || customerPrices[prod.id.replace(/^p-/, '')];
-    if (agreed) {
-      if (agreed.price1 > 0) price = agreed.price1;
-      else if (agreed.price2 > 0) price = agreed.price2;
-    }
-    
+    if (prod.discountRate && prod.discountRate > 0) price = price * (1 - prod.discountRate / 100);
     return price;
   };
 
@@ -457,7 +476,7 @@ export function SlipEntryView({
         if (!prod) return it;
         const newUnitPrice = getProductPrice(prod, currentCustomer, newType);
         const supply = Math.round(it.qty * newUnitPrice);
-        const tax = Math.round(supply * 0.1);
+        const tax = taxOf(supply);
         return {
           ...it,
           unitPrice: newUnitPrice,
@@ -482,23 +501,41 @@ export function SlipEntryView({
           target.productId = prod.id;
           target.productCode = prod.code;
           target.productName = prod.name;
+          target.qty = target.qty > 0 ? target.qty : 1;
           target.spec = prod.spec;
           target.unit = prod.unit;
           const price = getProductPrice(prod);
           
           target.unitPrice = price;
           target.supplyAmount = Math.round(target.qty * price);
-          target.taxAmount = Math.round(target.supplyAmount * 0.1);
+          target.taxAmount = taxOf(target.supplyAmount);
           target.totalAmount = target.supplyAmount + target.taxAmount;
+        }
+      }
+
+      // 할인율 변경: 단가 = 협정가(소비자가) × (100+할인율)/100 (원본 캡처: 협정가 90,600에 -100 → 단가 0)
+      if (field === 'discountRate') {
+        const prodForRate = products.find(p => p.id === target.productId);
+        const rateRaw = String(val).trim();
+        if (rateRaw === '' ) { target.discountRate = undefined; }
+        else {
+          const rate = Number(rateRaw) || 0;
+          target.discountRate = rate;
+          if (prodForRate && (prodForRate.retailPrice || 0) > 0) {
+            target.unitPrice = Number(((prodForRate.retailPrice as number) * (100 + rate) / 100).toFixed(priceDecimals));
+            target.supplyAmount = Math.round(target.qty * target.unitPrice);
+            target.taxAmount = taxOf(target.supplyAmount);
+            target.totalAmount = target.supplyAmount + target.taxAmount;
+          }
         }
       }
 
       // Quantity or UnitPrice changed
       if (field === 'qty' || field === 'unitPrice') {
         const q = field === 'qty' ? Number(val) || 0 : target.qty;
-        const p = field === 'unitPrice' ? Number(val) || 0 : target.unitPrice;
+        const p = field === 'unitPrice' ? Number((Number(val) || 0).toFixed(priceDecimals)) : target.unitPrice;
         target.supplyAmount = Math.round(q * p);
-        target.taxAmount = Math.round(target.supplyAmount * 0.1);
+        target.taxAmount = taxOf(target.supplyAmount);
         target.totalAmount = target.supplyAmount + target.taxAmount;
       }
 
@@ -507,26 +544,59 @@ export function SlipEntryView({
     });
   };
 
+  const handleVatModeChange = (mode: 'incl' | 'excl', persist = true) => {
+    setVatMode(mode);
+    if (persist) { try { localStorage.setItem('oksale.vatMode2', mode); } catch {} }
+    setItems(prev => prev.map(it => {
+      const tax = mode === 'incl' ? Math.round(it.supplyAmount * 0.1) : 0;
+      return { ...it, taxAmount: tax, totalAmount: it.supplyAmount + tax };
+    }));
+  };
+
+  // 품목 검색창에서 수량을 넣은 규격들을 전표 줄로 담는다(첫 줄은 선택한 빈 줄을 채우고 나머지는 그 아래에 추가).
+  const applyModalQty = (): boolean => {
+    const picks = searchResults.filter(p => Number(modalQty[p.id]) > 0);
+    if (picks.length === 0) return false;
+    const rows: SlipItem[] = picks.map((prod, i) => {
+      const qty = Number(modalQty[prod.id]);
+      const price = getProductPrice(prod);
+      const supply = Math.round(qty * price);
+      const tax = taxOf(supply);
+      return { id: `row-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`, productId: prod.id, productCode: prod.code, productName: prod.name, spec: prod.spec, unit: prod.unit, qty, unitPrice: price, supplyAmount: supply, taxAmount: tax, totalAmount: supply + tax, memo: '' };
+    });
+    setItems(prev => {
+      const at = activeRowIndex !== null && activeRowIndex < prev.length ? activeRowIndex : prev.length - 1;
+      const next = [...prev];
+      if (next[at] && !next[at].productId) next.splice(at, 1, ...rows); else next.splice(at + 1, 0, ...rows);
+      return next;
+    });
+    setModalQty({});
+    return true;
+  };
+
+  // F4 할인율: 현재 행 품명과 같은 품명의 모든 행에 같은 할인율을 적용한다(규격별 협정가 기준).
+  const handleApplyDiscountToSameName = () => {
+    const row = items[Math.min(focusRow, items.length - 1)];
+    if (!row || !row.productId) { alert('할인율을 적용할 품목 줄을 먼저 선택하세요.'); return; }
+    const raw = window.prompt(`«${displayProductName(row.productName)}» 같은 품명 전체에 적용할 할인율(%)을 입력하세요.\n예) -30 = 협정가에서 30% 할인, -100 = 0원`, row.discountRate != null ? String(row.discountRate) : '');
+    if (raw === null) return;
+    const rate = Number(raw);
+    if (!Number.isFinite(rate)) { alert('숫자로 입력하세요.'); return; }
+    const noAgreed: string[] = [];
+    setItems(prev => prev.map(it => {
+      if (it.productName !== row.productName || !it.productId) return it;
+      const pr = products.find(p => p.id === it.productId);
+      if (!pr || !(pr.retailPrice || 0) ) { noAgreed.push(it.spec); return { ...it, discountRate: rate }; }
+      const unitPrice = Number(((pr.retailPrice as number) * (100 + rate) / 100).toFixed(priceDecimals));
+      const supply = Math.round(it.qty * unitPrice);
+      const tax = taxOf(supply);
+      return { ...it, discountRate: rate, unitPrice, supplyAmount: supply, taxAmount: tax, totalAmount: supply + tax };
+    }));
+    if (noAgreed.length) setTimeout(() => alert(`협정가가 없는 규격은 단가를 바꾸지 못했습니다: ${noAgreed.join(', ')}\n(품목관리에서 협정가를 입력하세요)`), 0);
+  };
+
   const handleAddRow = () => {
-    const defaultProd = products[0];
-    const unitPrice = defaultProd ? getProductPrice(defaultProd) : 0;
-    setItems(prev => [
-      ...prev,
-      {
-        id: `row-${Date.now()}`,
-        productId: defaultProd?.id || '',
-        productCode: defaultProd?.code || '',
-        productName: defaultProd?.name || '',
-        spec: defaultProd?.spec || '',
-        unit: defaultProd?.unit || 'EA',
-        qty: 1,
-        unitPrice,
-        supplyAmount: unitPrice,
-        taxAmount: Math.round(unitPrice * 0.1),
-        totalAmount: Math.round(unitPrice * 1.1),
-        memo: ''
-      }
-    ]);
+    setItems(prev => [...prev, blankRow()]);
   };
 
   const handleRemoveRow = (idx: number) => {
@@ -536,6 +606,35 @@ export function SlipEntryView({
     }
     setItems(prev => prev.filter((_, i) => i !== idx));
   };
+
+  // 하단 정보행(원본: 최근매입가·판매단가·협정가·이익률·최근거래일·단가변동일·현재고) — 현재 선택 행의 품목 기준.
+  // 최근거래·단가변동은 같은 거래처·같은 구분의 저장된 전표에서 계산한다(이관 시 Price 표의 날짜 칸이 빠져 있어 전표 이력으로 대신함).
+  const rowInfo = useMemo(() => {
+    const row = items[Math.min(focusRow, items.length - 1)];
+    const prod = row && products.find(p => p.id === row.productId);
+    if (!row || !prod) return null;
+    const hist = slips
+      .filter(sl => sl.slipType === slipType && sl.customerId === selectedCustomerId && sl.id !== editingSlipId)
+      .flatMap(sl => sl.items.filter(it => it.productId === prod.id).map(it => ({ date: sl.slipDate, price: it.unitPrice })))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const last = hist[0];
+    let changedOn = last?.date; // 현재 단가가 처음 적용된 날(같은 단가가 이어진 가장 오래된 거래일)
+    for (const h of hist) { if (h.price !== last.price) break; changedOn = h.date; }
+    const cost = prod.lastPurchasePrice || prod.costPrice || 0;
+    const margin = row.unitPrice > 0 && cost > 0 ? ((row.unitPrice - cost) / row.unitPrice) * 100 : null;
+    return { cost, sell: prod.sellingPrice || 0, agreed: prod.retailPrice || 0, margin, last, changedOn, stock: prod.currentStock || 0 };
+  }, [items, focusRow, products, slips, slipType, selectedCustomerId, editingSlipId]);
+
+  // 핫키(원본): F4 할인율 · F8 저장 · F2 품목 검색 열기. 입력 칸에서도 동작하도록 창 단위로 듣는다.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isProductSearchOpen || isQuickSiteModalOpen) return;
+      if (e.key === 'F4') { e.preventDefault(); handleApplyDiscountToSameName(); }
+      else if (e.key === 'F8') { e.preventDefault(); if (!isSubmitting) handleSubmitSlip(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   // Calculations
   const totalSupplyAmount = items.reduce((s, it) => s + (it.supplyAmount || 0), 0);
@@ -572,6 +671,31 @@ export function SlipEntryView({
     setDispatchStatus(slip.dispatchStatus);
   };
 
+  // 전표 복사(원본 «전표복사»): 이미 쓴 전표(예: 견적)를 새 전표로 가져와 구분·내용을 고쳐 따로 저장한다. 원본 전표는 그대로 둔다.
+  const handleCopySlip = (slip: Slip) => {
+    setEditingSlipId(null);
+    setLinkedFromId(null);
+    setSlipType(slip.slipType);
+    setSlipDate(todayStr);
+    setSelectedCustomerId(slip.customerId);
+    setSelectedSiteId(slip.siteId || '');
+    setSelectedSiteName(slip.siteName || '');
+    setSelectedSiteManager(slip.siteManager || '');
+    setSelectedSiteAddress(slip.siteAddress || '');
+    setItems(slip.items.map(it => {
+      const tax = taxOf(it.supplyAmount);
+      return { ...it, id: 'row-' + Math.random().toString(36).slice(2, 11), taxAmount: tax, totalAmount: it.supplyAmount + tax };
+    }));
+    setPaymentType('credit');
+    setPaidAmount(0);
+    setMemo('');
+    setNeedDelivery(false);
+    setDeliveryStatus('none');
+    setDispatchStatus(undefined);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast(`전표 #${slip.slipNo}를 복사했습니다. 구분·내용을 고친 뒤 저장하면 새 전표가 만들어집니다.`, 'info');
+  };
+
   // Convert Slip for O2C (e.g., ORDER -> DELIVERY)
   const handleConvertSlip = (slip: Slip, targetType: SlipType) => {
     setEditingSlipId(null); // 신규 작성 모드
@@ -599,7 +723,12 @@ export function SlipEntryView({
       alert('거래처를 선택해주세요.');
       return;
     }
-    if (items.length === 0 || items.some(it => !it.productId || it.qty <= 0)) {
+    const filledItems = items.filter(it => it.productId); // 빈 줄은 저장하지 않는다
+    if (filledItems.length === 0) {
+      alert('품목을 한 줄 이상 입력해주세요.');
+      return;
+    }
+    if (filledItems.some(it => it.qty <= 0)) {
       alert('모든 품목의 수량을 1 이상으로 입력해주세요.');
       return;
     }
@@ -618,7 +747,7 @@ export function SlipEntryView({
           siteName: selectedSiteName,
           siteManager: selectedSiteManager,
           siteAddress: selectedSiteAddress,
-          items,
+          items: filledItems,
           totalSupplyAmount,
           totalTaxAmount,
           totalAmount,
@@ -663,25 +792,9 @@ export function SlipEntryView({
       setPaidAmount(0);
       setMemo('');
       setNeedDelivery(false);
-      if (products.length > 0) {
-        const p = products[0];
-        setItems([
-          {
-            id: `row-${Date.now()}`,
-            productId: p.id,
-            productCode: p.code,
-            productName: p.name,
-            spec: p.spec,
-            unit: p.unit,
-            qty: 1,
-            unitPrice: p.sellingPrice,
-            supplyAmount: p.sellingPrice,
-            taxAmount: Math.round(p.sellingPrice * 0.1),
-            totalAmount: Math.round(p.sellingPrice * 1.1),
-            memo: ''
-          }
-        ]);
-      }
+      setItems([blankRow()]);
+      setSelectedCustomerId('');
+      setSelectedSiteId(''); setSelectedSiteName(''); setSelectedSiteManager(''); setSelectedSiteAddress('');
     }
   };
 
@@ -721,13 +834,20 @@ export function SlipEntryView({
 
   const formatKRW = (num: number) => num.toLocaleString('ko-KR') + '원';
 
-  const handleOpenPrintPreview = () => {
+  const handleOpenPrintPreview = (notesArg?: unknown) => {
+    const notes = Array.isArray(notesArg) ? (notesArg as string[]) : null; // 견적서 참조사항(참조1~4) — 입력창 확인 뒤 다시 호출될 때만 들어온다
     if (!selectedCustomerId) {
       showToast('명세서 출력을 위해 먼저 거래처를 선택해주세요.', 'error');
       return;
     }
     const currentCustomer = customers.find(c => c.id === selectedCustomerId);
     
+    // 견적서: 원본은 출력 전에 «비고입력» 창(참조1~4, 참조1 기본 «부가가치세 별도»)을 띄운다 — 확인하면 이어서 미리보기를 연다.
+    if (slipType === 'ESTIMATE' && notes === null) {
+      setRefDialog(['부가가치세 별도', '', '', '']);
+      return;
+    }
+    const refNote = (notes || []).map(x => x.trim()).filter(Boolean).join(' / ');
     const previewSlip: Slip = {
       id: editingSlipId || 'PREVIEW',
       slipNo: editingSlipId ? (slips.find(s => s.id === editingSlipId)?.slipNo || 'PREVIEW') : 'PREVIEW',
@@ -739,7 +859,7 @@ export function SlipEntryView({
       siteName: selectedSiteName,
       siteManager: selectedSiteManager,
       siteAddress: selectedSiteAddress,
-      items,
+      items: items.filter(it => it.productId),
       totalSupplyAmount,
       totalTaxAmount,
       totalAmount,
@@ -747,7 +867,8 @@ export function SlipEntryView({
       paidAmount,
       unpaidAmount,
       prevReceivables,
-      memo,
+      showPrevBalance: printPrevBalance,
+      memo: refNote ? `[참조사항] ${refNote}${memo ? ' / ' + memo : ''}` : memo,
       createdAt: editingSlipId ? (slips.find(s => s.id === editingSlipId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
       digitalSignature: editingSlipId ? slips.find(s => s.id === editingSlipId)?.digitalSignature : undefined,
       tsaToken: editingSlipId ? slips.find(s => s.id === editingSlipId)?.tsaToken : undefined,
@@ -936,6 +1057,13 @@ export function SlipEntryView({
                       <td className="py-1.5 px-2 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button 
+                            onClick={(e) => { e.stopPropagation(); handleCopySlip(slip); }} 
+                            className="p-1 text-emerald-600 hover:bg-emerald-100 rounded" 
+                            title="전표 복사 — 새 전표로 가져와 수정"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
                             onClick={(e) => { e.stopPropagation(); onOpenPrint(slip); }} 
                             className="p-1 text-blue-600 hover:bg-blue-200 rounded" 
                             title="명세서 인쇄"
@@ -1025,6 +1153,15 @@ export function SlipEntryView({
               ))}
             </div>
           </div>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="font-semibold text-slate-600">부가가치세:</span>
+            <label className="flex items-center gap-1 cursor-pointer"><input type="radio" name="vatMode" checked={vatMode === 'incl'} onChange={() => handleVatModeChange('incl')} />포함(세액 10% 가산)</label>
+            <label className="flex items-center gap-1 cursor-pointer"><input type="radio" name="vatMode" checked={vatMode === 'excl'} onChange={() => handleVatModeChange('excl')} />별도(세액 없음)</label>
+            <span className="text-slate-400">한 번 고르면 계속 유지됩니다.</span>
+            <label className="flex items-center gap-1 cursor-pointer ml-3"><input type="checkbox" checked={printPrevBalance} onChange={e => setPrintPrevBalance(e.target.checked)} />전잔액 출력</label>
+            <button type="button" onClick={handleApplyDiscountToSameName} className="border border-slate-300 rounded px-2 py-0.5 font-semibold hover:bg-slate-100" title="같은 품명 전체에 협정가 기준 할인율 적용">할인율 (F4)</button>
+            <button type="button" onClick={() => setPriceDecimals(d => ((d + 1) % 3) as 0 | 1 | 2)} className="border border-slate-300 rounded px-2 py-0.5 font-semibold hover:bg-slate-100" title="누를 때마다 0 → 1 → 2 → 0">단가소수점 {priceDecimals}</button>
+          </div>
         </div>
 
         {/* Bento Grid Layout for Form Fields */}
@@ -1066,12 +1203,13 @@ export function SlipEntryView({
                     </button>
                   </div>
                 </div>
-                <div className="flex gap-1.5 mb-1.5">
+                <div className="flex gap-1.5 mb-1.5 relative">
                   <input
                     type="text"
-                    placeholder="🔍 거래처 및 현장 통합검색..."
+                    placeholder="🔍 거래처 두 글자 + Enter (Insert: 새 거래처 등록)"
                     value={customerSearchFilter}
-                    onChange={e => setCustomerSearchFilter(e.target.value)}
+                    onKeyDown={handleCustKey}
+                    onChange={e => { setCustomerSearchFilter(e.target.value); setCustListOpen(false); }}
                     className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs bg-slate-50 focus:bg-white focus:ring-1 focus:ring-blue-500 font-medium transition-colors"
                   />
                   {customerSearchFilter && (
@@ -1082,6 +1220,22 @@ export function SlipEntryView({
                     >
                       ✕
                     </button>
+                  )}
+                  {custListOpen && custMatches.length > 0 && (
+                    <ul className="absolute left-0 right-0 top-full mt-1 z-30 max-h-64 overflow-y-auto bg-white border border-slate-300 rounded-md shadow-lg text-xs">
+                      {custMatches.map((c, i) => (
+                        <li
+                          key={c.id}
+                          onMouseDown={e => { e.preventDefault(); pickCustomer(c.id); }}
+                          onMouseEnter={() => setCustIdx(i)}
+                          className={`px-2.5 py-1.5 cursor-pointer flex justify-between gap-2 ${i === custIdx ? 'bg-blue-600 text-white' : 'hover:bg-slate-50'}`}
+                        >
+                          <span className="font-semibold truncate">{c.name}</span>
+                          <span className={`font-mono shrink-0 ${i === custIdx ? 'text-blue-100' : 'text-slate-400'}`}>{c.code}{c.sites && c.sites.length > 0 ? ` · 현장 ${c.sites.length}` : ''}</span>
+                        </li>
+                      ))}
+                      <li className="px-2.5 py-1 text-[10px] text-slate-400 border-t">↑↓ 이동 · Enter 선택 · Esc 닫기 · 없으면 Insert로 등록</li>
+                    </ul>
                   )}
                 </div>
                 <select
@@ -1334,8 +1488,9 @@ export function SlipEntryView({
                 {slipType !== 'DELIVERY' && (
                   <>
                     <th className="py-3 px-3 min-w-[110px] text-right">단가</th>
+                    <th className="py-3 px-3 min-w-[80px] text-right" title="협정가 기준 할인율(%). F4로 같은 품명 전체에 적용">할인율%</th>
                     <th className="py-3 px-3 min-w-[120px] text-right">공급가액</th>
-                    <th className="py-3 px-3 min-w-[100px] text-right">세액(10%)</th>
+                    <th className="py-3 px-3 min-w-[100px] text-right">세액</th>
                     <th className="py-3 px-3 min-w-[130px] text-right">합계금액</th>
                   </>
                 )}
@@ -1368,7 +1523,7 @@ export function SlipEntryView({
                       <div className="truncate flex-1 mr-1">
                         {row.productName ? (
                           <span className="font-bold text-slate-800">
-                            {row.productName}{' '}
+                            {displayProductName(row.productName)}{' '}
                             <span className="text-slate-500 font-normal text-xs">[{row.spec}]</span>
                           </span>
                         ) : (
@@ -1394,6 +1549,7 @@ export function SlipEntryView({
                       type="number"
                       min={1}
                       value={row.qty}
+                      onFocus={() => setFocusRow(idx)}
                       onChange={e => handleItemChange(idx, 'qty', e.target.value)}
                       className="w-full py-2 px-2 border border-slate-200 rounded-md text-right font-mono font-bold text-slate-800 focus:ring-1 focus:ring-blue-500"
                     />
@@ -1404,7 +1560,20 @@ export function SlipEntryView({
                         <input
                           type="number"
                           value={row.unitPrice}
+                          onFocus={() => setFocusRow(idx)}
+                          step={priceDecimals ? Math.pow(10, -priceDecimals) : 1}
                           onChange={e => handleItemChange(idx, 'unitPrice', e.target.value)}
+                          className="w-full py-2 px-2 border border-slate-200 rounded-md text-right font-mono text-slate-800 focus:ring-1 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="py-3 px-3">
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={row.discountRate ?? ''}
+                          placeholder="-"
+                          onFocus={() => setFocusRow(idx)}
+                          onChange={e => handleItemChange(idx, 'discountRate', e.target.value)}
                           className="w-full py-2 px-2 border border-slate-200 rounded-md text-right font-mono text-slate-800 focus:ring-1 focus:ring-blue-500"
                         />
                       </td>
@@ -1442,6 +1611,21 @@ export function SlipEntryView({
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* 하단 정보행 — 원본 전표작업 창 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-px bg-slate-200 border-t border-slate-200 text-[11px]">
+          {([
+            ['최근매입가', rowInfo ? rowInfo.cost.toLocaleString('ko-KR') : '-'],
+            ['판매단가', rowInfo ? rowInfo.sell.toLocaleString('ko-KR') : '-'],
+            ['협정가', rowInfo ? rowInfo.agreed.toLocaleString('ko-KR') : '-'],
+            ['이익률', rowInfo?.margin != null ? `${rowInfo.margin.toFixed(1)}%` : '-'],
+            ['최근거래일', rowInfo?.last ? `${rowInfo.last.date}: ${rowInfo.last.price.toLocaleString('ko-KR')}` : '첫 거래'],
+            ['단가변동일', rowInfo?.last && rowInfo.changedOn ? `${rowInfo.changedOn}: ${rowInfo.last.price.toLocaleString('ko-KR')}` : '-'],
+            ['현재고', rowInfo ? rowInfo.stock.toLocaleString('ko-KR') : '-']
+          ] as const).map(([k, v]) => (
+            <div key={k} className="bg-white px-2 py-1 flex items-center justify-between gap-2"><span className="text-slate-500 font-semibold">{k}</span><span className="font-mono font-bold text-slate-800 truncate">{v}</span></div>
+          ))}
         </div>
 
         {/* Totals & Transaction Summary Footer */}
@@ -1669,6 +1853,53 @@ export function SlipEntryView({
       )}
 
       {/* Fast Product Search & Select Modal (Optimized for 11,000+ Products) */}
+      {refDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <form
+            onSubmit={e => { e.preventDefault(); const v = refDialog; setRefDialog(null); handleOpenPrintPreview(v); }}
+            onKeyDown={e => { if (e.key === 'Escape') setRefDialog(null); }}
+            className="bg-white rounded-lg border shadow-xl max-w-md w-full p-4 text-xs space-y-3"
+          >
+            <div className="flex justify-between items-center pb-2 border-b">
+              <h3 className="font-bold text-sm text-slate-800">견적서 비고 입력</h3>
+              <button type="button" onClick={() => setRefDialog(null)}><X className="w-4 h-4" /></button>
+            </div>
+            {refDialog.map((v, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <label className="w-12 font-semibold text-slate-600">참조{i + 1}</label>
+                <input autoFocus={i === 0} value={v} onChange={e => setRefDialog(refDialog.map((x, j) => (j === i ? e.target.value : x)))} className="flex-1 px-2.5 py-1.5 border rounded bg-white" />
+              </div>
+            ))}
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <button type="button" onClick={() => setRefDialog(null)} className="px-3 py-1.5 rounded border">종료 (Esc)</button>
+              <button type="submit" className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold">확인 (Enter)</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {quickCust && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <form onSubmit={submitQuickCust} className="bg-white rounded-lg border shadow-xl max-w-sm w-full p-4 text-xs space-y-3" onKeyDown={e => { if (e.key === 'Escape') setQuickCust(null); }}>
+            <div className="flex justify-between items-center pb-2 border-b">
+              <h3 className="font-bold text-sm text-slate-800">거래처 바로 등록</h3>
+              <button type="button" onClick={() => setQuickCust(null)}><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-slate-500">나머지 정보는 거래처관리에서 나중에 채워도 됩니다.</p>
+            {([['거래처명', 'name', true], ['사업자번호', 'bizNumber', false], ['대표자', 'ceo', false], ['전화', 'tel', false]] as const).map(([label, key, req]) => (
+              <div key={key}>
+                <label className="block font-semibold mb-1">{label}</label>
+                <input autoFocus={key === 'name'} required={req} value={quickCust[key]} onChange={e => setQuickCust({ ...quickCust, [key]: e.target.value })} className="w-full px-2.5 py-1.5 border rounded bg-white" />
+              </div>
+            ))}
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <button type="button" onClick={() => setQuickCust(null)} className="px-3 py-1.5 rounded border">취소 (Esc)</button>
+              <button type="submit" className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold">등록하고 선택</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {isProductSearchOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-3xl w-full overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
@@ -1705,8 +1936,8 @@ export function SlipEntryView({
                   value={productSearchKeyword}
                   onChange={e => setProductSearchKeyword(e.target.value)}
                   onKeyDown={e => {
-                    if (e.key === 'Escape') setIsProductSearchOpen(false);
-                    if (e.key === 'Enter' && searchResults.length > 0) {
+                    if (e.key === 'Escape') { applyModalQty(); setIsProductSearchOpen(false); }
+                    if (e.key === 'Enter' && searchResults.length > 0 && !Object.values(modalQty).some(v => Number(v) > 0)) {
                       handleItemChange(activeRowIndex !== null ? activeRowIndex : 0, 'productId', searchResults[0].id);
                       setIsProductSearchOpen(false);
                     }
@@ -1739,13 +1970,14 @@ export function SlipEntryView({
                     <th className="py-2 px-2 text-center w-14">단위</th>
                     <th className="py-2 px-2.5 text-right w-24">재고</th>
                     <th className="py-2 px-2.5 text-right w-28">출고단가</th>
+                    <th className="py-2 px-2 text-center w-20">수량</th>
                     <th className="py-2 px-2.5 text-center w-20">선택</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {searchResults.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <td colSpan={8} className="py-12 text-center text-slate-400">
                         &quot;{productSearchKeyword}&quot;에 일치하는 품목이 없습니다.
                       </td>
                     </tr>
@@ -1770,6 +2002,17 @@ export function SlipEntryView({
                         </td>
                         <td className="py-2 px-2.5 text-right font-mono font-bold text-blue-700">
                           {p.sellingPrice.toLocaleString()}원
+                        </td>
+                        <td className="py-2 px-2 text-center" onClick={e => e.stopPropagation()}>
+                          <input
+                            type="number"
+                            min={0}
+                            value={modalQty[p.id] ?? ''}
+                            onChange={e => setModalQty(q => ({ ...q, [p.id]: e.target.value }))}
+                            onKeyDown={e => { if (e.key === 'Escape') { applyModalQty(); setIsProductSearchOpen(false); } }}
+                            placeholder="수량"
+                            className="w-16 py-1 px-1.5 border border-slate-300 rounded text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
+                          />
                         </td>
                         <td className="py-2 px-2.5 text-center">
                           <button
@@ -1796,15 +2039,25 @@ export function SlipEntryView({
             {/* Footer */}
             <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500">
               <span>
-                💡 Enter 키를 누르면 첫 번째 검색 품목이 즉시 선택됩니다. (ESC로 닫기)
+                💡 규격마다 수량을 넣고 Esc(또는 «담기»)를 누르면 한꺼번에 담깁니다. 수량 없이 Enter는 첫 품목 선택.
               </span>
-              <button
-                type="button"
-                onClick={() => setIsProductSearchOpen(false)}
-                className="px-4 py-1.5 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 font-semibold text-slate-700"
-              >
-                닫기
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!Object.values(modalQty).some(v => Number(v) > 0)}
+                  onClick={() => { if (applyModalQty()) setIsProductSearchOpen(false); }}
+                  className="px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-40"
+                >
+                  수량 입력한 규격 담기 (Esc)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setModalQty({}); setIsProductSearchOpen(false); }}
+                  className="px-4 py-1.5 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 font-semibold text-slate-700"
+                >
+                  닫기
+                </button>
+              </div>
             </div>
           </div>
         </div>

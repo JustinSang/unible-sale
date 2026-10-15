@@ -25,7 +25,22 @@ async function migrate() {
 
   // 1. Config
   if (db.config) {
-    const { error } = await supabase.from('system_config').upsert({ id: 'default', config: db.config });
+    // db.json의 회사정보는 임시값(홍길동·120-81-45678)이라, 실제 거래명세표(서류/1.xlsx)에서 확인된 값으로 덮어쓴다.
+    const config = {
+      ...db.config,
+      companyInfo: {
+        ...db.config.companyInfo,
+        name: '동산화스너',
+        bizNumber: '202-14-62327',
+        ceo: '상원준',
+        address: '고양시 덕양구 삼원로 73, 210호',
+        tel: '02-2267-1300',
+        fax: '02-2274-4386',
+        bizType: '도매',
+        bizItem: '볼트너트 철물외'
+      }
+    };
+    const { error } = await supabase.from('system_config').upsert({ id: 'default', config });
     if (error) console.error('Config Error:', error);
     else console.log('✅ Config migrated');
   }
@@ -69,6 +84,25 @@ async function migrate() {
     }
   }
 
+  // 4-2. 세금계산서·출고·어음·수금·재고수불부 (db.json 키 → Supabase 표)
+  const extraTables: [string, string][] = [
+    ['taxInvoices', 'tax_invoices'],
+    ['deliveries', 'deliveries'],
+    ['bills', 'bills'],
+    ['collections', 'collections'],
+    ['inventoryLogs', 'inventory_logs']
+  ];
+  for (const [key, table] of extraTables) {
+    const rows = db[key] || [];
+    if (rows.length === 0) continue;
+    console.log(`Migrating ${rows.length} ${table}...`);
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await supabase.from(table).upsert(rows.slice(i, i + 500));
+      if (error) console.error(`${table} Error:`, error);
+      else console.log(`✅ ${table} ${i + 1} to ${Math.min(i + 500, rows.length)} migrated`);
+    }
+  }
+
   // 5. Prices
   if (fs.existsSync(PRICES_PATH)) {
     const pricesRaw = fs.readFileSync(PRICES_PATH, 'utf-8');
@@ -82,8 +116,19 @@ async function migrate() {
           priceRows.push({
             customerId,
             productId,
+            // prices.json 원본은 price1·price2·price3(+품명·규격)이다. price 하나만 옮기면 단가가 0이 된다.
             // @ts-ignore
-            price: priceData.price || 0,
+            price1: priceData.price1 || 0,
+            // @ts-ignore
+            price2: priceData.price2 || 0,
+            // @ts-ignore
+            price3: priceData.price3 || 0,
+            // @ts-ignore
+            price: priceData.price1 || priceData.price || 0,
+            // @ts-ignore
+            productName: priceData.productName || '',
+            // @ts-ignore
+            spec: priceData.spec || '',
             // @ts-ignore
             memo: priceData.memo || ''
           });

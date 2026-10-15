@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useDeferredValue } from 'react';
+import React, { useState, useMemo, useDeferredValue, useEffect, useRef } from 'react';
 import {
   Plus,
   Search,
@@ -40,6 +40,14 @@ export function CustomerMasterView({
   osTheme
 }: CustomerMasterViewProps) {
   const [searchTerm, setSearchTerm] = useState<string>('');
+  // 초기이월금(원본: «머니플러스 사용 이전의 금액, 받을 금액 +·줄 금액 −») — 장부·수금지급 화면의 기초잔액과 같은 값을 system_config에 보관한다.
+  const [opening, setOpening] = useState<{ asOf: string; byCustomer: Record<string, number> }>({ asOf: '', byCustomer: {} });
+  const [openingInput, setOpeningInput] = useState<string>('');
+  const [openingAsOf, setOpeningAsOf] = useState<string>('');
+  useEffect(() => {
+    fetch('/api/config').then(r => (r.ok ? r.json() : null)).then(c => { if (c?.openingBalances?.byCustomer) setOpening(c.openingBalances); }).catch(() => {});
+  }, []);
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -177,10 +185,27 @@ export function CustomerMasterView({
     setIsModalOpen(true);
   };
 
+  // 핫키(원본 공통): Insert 추가 · F2 조회 · F8 저장 · Esc 닫기
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isModalOpen) {
+        if (e.key === 'F8') { e.preventDefault(); (document.getElementById('customer-form') as HTMLFormElement | null)?.requestSubmit(); }
+        else if (e.key === 'Escape') setIsModalOpen(false);
+        return;
+      }
+      if (e.key === 'Insert') { e.preventDefault(); handleOpenAdd(); }
+      else if (e.key === 'F2') { e.preventDefault(); searchRef.current?.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   const handleOpenEdit = (c: Customer, tab: 'basic' | 'sites' = 'basic') => {
     setEditingId(c.id);
     setModalTab(tab);
     setForm({ ...c, sites: c.sites ? [...c.sites] : [] });
+    setOpeningInput(String(opening.byCustomer[c.id] ?? ''));
+    setOpeningAsOf(opening.asOf || '');
     setNewSite({
       siteCode: `${c.code}-${(c.sites?.length || 0) + 1}`,
       siteName: '',
@@ -231,11 +256,24 @@ export function CustomerMasterView({
       return;
     }
 
-    if (editingId) {
-      await onUpdateCustomer(editingId, form);
-    } else {
-      await onAddCustomer(form);
-    }
+    try {
+      if (editingId) {
+        await onUpdateCustomer(editingId, form);
+        // 초기이월금: 값이나 기준일이 바뀐 때만 설정에 반영(받을 금액 +, 줄 금액 −)
+        const v = Number(openingInput) || 0;
+        if (v !== (opening.byCustomer[editingId] || 0) || (openingAsOf && openingAsOf !== opening.asOf)) {
+          if (v !== 0 && !openingAsOf) { alert('초기이월금을 입력하려면 기준일(이 날짜 시작 시점의 잔액)을 정해 주세요.'); return; }
+          const next = { asOf: openingAsOf || opening.asOf, byCustomer: { ...opening.byCustomer } };
+          if (v === 0) delete next.byCustomer[editingId]; else next.byCustomer[editingId] = v;
+          const cur = await fetch('/api/config').then(r => (r.ok ? r.json() : {}));
+          const res = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cur, openingBalances: next }) });
+          if (!res.ok) throw new Error('초기이월금 저장에 실패했습니다.');
+          setOpening(next);
+        }
+      } else {
+        await onAddCustomer(form);
+      }
+    } catch (err: any) { alert(err.message || '저장 중 오류가 발생했습니다.'); return; }
     setIsModalOpen(false);
   };
 
@@ -314,7 +352,7 @@ export function CustomerMasterView({
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
+              <input ref={searchRef}
                 type="text"
                 placeholder="상호/대표자/사업자번호/현장명 검색..."
                 value={searchTerm}
@@ -745,7 +783,7 @@ export function CustomerMasterView({
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-4 space-y-3 text-xs overflow-y-auto flex-1">
+            <form id="customer-form" onSubmit={handleSave} className="p-4 space-y-3 text-xs overflow-y-auto flex-1">
               {modalTab === 'basic' ? (
                 <>
                   <div className="grid grid-cols-2 gap-3">
@@ -839,6 +877,42 @@ export function CustomerMasterView({
                     />
                   </div>
 
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">전화2 <span className="font-normal text-slate-400">(직통)</span></label>
+                      <input type="text" value={form.tel2 || ''} onChange={e => setForm({ ...form, tel2: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white font-mono" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">전화3 <span className="font-normal text-slate-400">(담당자)</span></label>
+                      <input type="text" value={form.tel3 || ''} onChange={e => setForm({ ...form, tel3: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white font-mono" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">존칭 <span className="font-normal text-slate-400">(우편 발송)</span></label>
+                      <input type="text" value={form.title || ''} onChange={e => setForm({ ...form, title: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">상세 주소</label>
+                    <input type="text" value={form.address2 || ''} onChange={e => setForm({ ...form, address2: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">구분 <span className="font-normal text-slate-400">(거래등급·거래처구분)</span></label>
+                      <input type="text" value={form.category || ''} onChange={e => setForm({ ...form, category: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">부가세 적용 <span className="font-normal text-slate-400">(전표 기본값)</span></label>
+                      <select value={form.vatType || ''} onChange={e => setForm({ ...form, vatType: (e.target.value || undefined) as Customer['vatType'] })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white">
+                        <option value="">지정 안 함 (전표에서 선택한 대로)</option>
+                        <option value="incl">포함 (세액 10% 가산)</option>
+                        <option value="excl">별도 (세액 없음)</option>
+                        <option value="none">없음 (면세)</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block font-semibold text-slate-700 mb-1">업태</label>
@@ -862,13 +936,26 @@ export function CustomerMasterView({
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">초기 외상미수금</label>
-                      <input
-                        type="number"
-                        value={form.receivables || 0}
-                        onChange={e => setForm({ ...form, receivables: Number(e.target.value) || 0 })}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-right font-mono"
-                      />
+                      <label className="block font-semibold text-slate-700 mb-1">초기이월금 <span className="font-normal text-slate-400">(받을 금액 +, 줄 금액 −)</span></label>
+                      {editingId ? (
+                        <div className="flex gap-1.5">
+                          <input
+                            type="number"
+                            value={openingInput}
+                            onChange={e => setOpeningInput(e.target.value)}
+                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-right font-mono"
+                          />
+                          <input
+                            type="date"
+                            title="이 거래처는 이 날짜 시작 시점의 잔액으로 봅니다(그 이전 거래는 잔액에 들어 있다고 보고 제외). 기준일은 모든 거래처가 같은 날짜를 씁니다."
+                            value={openingAsOf}
+                            onChange={e => setOpeningAsOf(e.target.value)}
+                            className="px-1.5 py-1.5 border border-slate-300 rounded bg-white font-mono text-[11px]"
+                          />
+                        </div>
+                      ) : (
+                        <div className="px-2.5 py-1.5 border border-dashed border-slate-300 rounded bg-slate-50 text-slate-400">등록한 뒤 «수정»에서 입력합니다.</div>
+                      )}
                     </div>
                     <div>
                       <label className="block font-semibold text-slate-700 mb-1">정기 결제 마감일</label>
@@ -904,6 +991,53 @@ export function CustomerMasterView({
                         onChange={e => setForm({ ...form, taxEmail: e.target.value })}
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white font-mono text-[11px]"
                       />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">여신한도액 (원)</label>
+                      <input type="number" placeholder="" value={form.creditLimit ?? ''} onChange={e => setForm({ ...form, creditLimit: Number(e.target.value) || 0 })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">영업사원</label>
+                      <input type="text" placeholder="" value={form.salesman || ''} onChange={e => setForm({ ...form, salesman: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">고객등급</label>
+                      <input type="text" placeholder="A / B / C" value={form.grade || ''} onChange={e => setForm({ ...form, grade: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">최소마진율 (%)</label>
+                      <input type="number" placeholder="" value={form.minMarginRate ?? ''} onChange={e => setForm({ ...form, minMarginRate: Number(e.target.value) || 0 })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">담당자</label>
+                      <input type="text" placeholder="" value={form.contactName || ''} onChange={e => setForm({ ...form, contactName: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">직책</label>
+                      <input type="text" placeholder="" value={form.contactDuty || ''} onChange={e => setForm({ ...form, contactDuty: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">홈페이지</label>
+                      <input type="text" placeholder="https://" value={form.homepage || ''} onChange={e => setForm({ ...form, homepage: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">우편번호</label>
+                      <input type="text" placeholder="" value={form.zip || ''} onChange={e => setForm({ ...form, zip: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">은행</label>
+                      <input type="text" placeholder="" value={form.bank || ''} onChange={e => setForm({ ...form, bank: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">예금주</label>
+                      <input type="text" placeholder="" value={form.accountHolder || ''} onChange={e => setForm({ ...form, accountHolder: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1">계좌번호</label>
+                      <input type="text" placeholder="" value={form.account || ''} onChange={e => setForm({ ...form, account: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white" />
                     </div>
                   </div>
 

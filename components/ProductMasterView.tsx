@@ -69,7 +69,7 @@ export function ProductMasterView({
         p.spec.toLowerCase().includes(q) || (p.supplier && p.supplier.toLowerCase().includes(q)) ||
         (p.nickName && p.nickName.toLowerCase().includes(q)) || (p.barcode && p.barcode.toLowerCase().includes(q))
       );
-    }).sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.spec.localeCompare(b.spec, 'ko', { numeric: true }));
+    }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko') || (a.spec || '').localeCompare(b.spec || '', 'ko', { numeric: true }));
   }, [products, deferredSearchTerm, selectedCategory]);
 
   const kpiData = useMemo(() => {

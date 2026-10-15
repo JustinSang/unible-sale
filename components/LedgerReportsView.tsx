@@ -645,12 +645,14 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   }, [customers, phoneQuery]);
 
   // ───────── 원본 양식 인쇄(RptReportPrint) — 화면의 줄을 원본 .rpt 필드 이름으로 바꿔 복원한 좌표에 찍는다 ─────────
-  const [rptOpen, setRptOpen] = useState(false);
+  const [rptOpen, setRptOpen] = useState<number | null>(null);
   // 이관 데이터의 전화번호에는 원본 입력 마스크(«__02)2267-1300»·«--»)가 남아 있다 — 숫자가 없으면 빈칸, 있으면 밑줄과 앞쪽 기호만 뺀다.
   const cleanTel = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').replace(/^[-)\s]+/, '').trim() : '');
-  const rptSpec = useMemo((): { key: string; title: string; rows: RptRow[]; params: Record<string, string> } | null => {
+  type RptSpec = { key: string; title: string; rows: RptRow[]; params: Record<string, string> };
+  const rptSpecs = useMemo((): RptSpec[] => {
     const co = '동산화스너';
     const base = { FromDate: from, ToDate: to, UserCompanyName: co };
+    const one = ((): RptSpec | RptSpec[] | null => {
     switch (section) {
       case 'cashbook': return { key: 'CashBook', title: '현금출납부', params: { ...base, CustomerName: '', AccountName: '현금' }, rows: [{ AccountDate: '', Comments: '전기 이월', Balance: cashbook.opening }, ...cashbook.rows.map(r => ({ AccountDate: r.date, Comments: r.desc, CreditAmount: r.inAmt, DebitAmount: r.outAmt, Balance: r.bal }))] };
       case 'ledger': { const nm = (ledgerOptions.find(o => o.id === ledger.id)?.name) || ''; return { key: 'CustomerBook', title: '거래처별원장', params: { ...base, CustomerCompanyName: nm }, rows: [{ ProductName: '전기 이월', Balance: ledger.opening }, ...ledger.rows.map(r => ({ SlipDate: r.date, Kind: r.kind, ProductName: r.productName, Spec: r.spec, Qty: r.qty ?? '', Price: r.price ?? '', Amount: r.amount, Tax: r.tax, Balance: r.balance, Comments: r.comments }))] }; }
@@ -671,9 +673,35 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
         const pay = bbKind === '지급어음';
         return { key: pay ? 'PaymentBill' : 'ReceiptBill', title: pay ? '지급어음집계표' : '받은어음집계표', params: base, rows: list.map(b => ({ BillNo: b.billNo, BillStatusModeName: b.status, BillAmount: b.amount, ReceiptCustomerName: b.customerName, PayCustomerName: pay ? b.customerName : b.payCustomerName || '', ReceiptDate: b.receiptDate || '', IssueDate: b.issueDate, FallDate: b.dueDate, PayBank: pay ? b.payBank || b.bank : b.bank, PayDate: b.payDate || '' })) };
       }
+      case 'daily': {
+        const g = (label: '매출' | '매입', grp: typeof dailyByCust.sales, mon: typeof dailyByCust.monSales): RptRow[] => [
+          ...grp.rows.map(r => ({ Kind: label, CustomerName: r.name, SalesBuyingAmount: r.amt, ReturnAmount: r.ret, ReceiptAmount: label === '매출' ? r.rcp : 0, PaymentAmount: label === '매입' ? r.rcp : 0 })),
+          { CustomerName: `${label}계`, SalesBuyingAmount: grp.tot.amt, ReturnAmount: grp.tot.ret, ReceiptAmount: label === '매출' ? grp.tot.rcp : 0, PaymentAmount: label === '매입' ? grp.tot.rcp : 0 },
+          { CustomerName: `월${label}계`, SalesBuyingAmount: mon.amt, ReturnAmount: mon.ret, ReceiptAmount: label === '매출' ? mon.rcp : 0, PaymentAmount: label === '매입' ? mon.rcp : 0 }
+        ];
+        const rows: RptRow[] = [...g('매출', dailyByCust.sales, dailyByCust.monSales), ...g('매입', dailyByCust.purchase, dailyByCust.monPurchase)];
+        let n = 0; rows.forEach(r => { if (r.Kind) r.No = ++n; });
+        const flat: RptRow[] = [...dailyByCust.sales.rows.map(r => ({ Kind: '매출', CustomerName: r.name, SalesBuyingAmount: r.amt, ReturnAmount: r.ret, ReceiptPaymentAmount: r.rcp })), ...dailyByCust.purchase.rows.map(r => ({ Kind: '매입', CustomerName: r.name, SalesBuyingAmount: r.amt, ReturnAmount: r.ret, ReceiptPaymentAmount: r.rcp }))];
+        return [{ key: 'DailyBalanceSummary', title: '영업일계표', params: { ...base, FromDate: day, ToDate: day }, rows }, { key: 'DailyBalance', title: '영업일계표(영문 머리글 변형)', params: { ...base, FromDate: day, ToDate: day }, rows: flat }];
+      }
+      case 'receivable': {
+        const k1 = (v: number) => Math.round(v / 1000);
+        if (rcvMode === 'quarter') {
+          const q0 = (qtr - 1) * 3 + 1; const lab = (i: number, w: string) => `${q0 + i}월${w}`;
+          const rows = [...quarter.recv, ...quarter.pay].map(r => ({ CustomerName: r.name, BeforeBalance: k1(r.before), Month1Sale: k1(r.sale[0]), Month1Receipt: k1(r.receipt[0]), Month2Sale: k1(r.sale[1]), Month2Receipt: k1(r.receipt[1]), Month3Sale: k1(r.sale[2]), Month3Receipt: k1(r.receipt[2]), Balance: k1(r.balance) }));
+          return { key: 'QuarterSummary', title: '분기 집계표', params: { FromDate: `${year}-${String(q0).padStart(2, '0')}-01`, ToDate: `${year}-${String(q0 + 2).padStart(2, '0')}-31`, UserCompanyName: co, Title: `${year}년 ${qtr}분기 거래처별 집계표`, Month1Sale: lab(0, '매출'), Month1Receipt: lab(0, '수금'), Month2Sale: lab(1, '매출'), Month2Receipt: lab(1, '수금'), Month3Sale: lab(2, '매출'), Month3Receipt: lab(2, '수금') }, rows };
+        }
+        // 월별: 마지막 거래 달을 «금월»로 하고 전월·전전월·전기이월(그 이전 합)·잔액(전체 합)을 찍는다 — 원본 열 의미(전기이월·전전월·전월·금월·잔액)에 맞춘 추정.
+        let end = 11; for (let i = 11; i >= 0; i--) if (receivable.rows.some(r => r.m[i] !== 0)) { end = i; break; }
+        const tel = new Map(customers.map(c => [c.id, cleanTel(c.tel)]));
+        const rows = receivable.rows.map(r => ({ CustomerName: r.name, TelephoneNo1: tel.get(r.id) || '', Balance: r.m.slice(0, end + 1).reduce((a, b) => a + b, 0), Month3Receipt: r.m[end] || 0, Month2Receipt: end >= 1 ? r.m[end - 1] : 0, Month1Receipt: end >= 2 ? r.m[end - 2] : 0, BeforeBalance: end >= 3 ? r.m.slice(0, end - 2).reduce((a, b) => a + b, 0) : 0 }));
+        return { key: 'ReceiptPaymentSummary', title: '미수·미지급 집계표', params: { FromDate: `${year}-01-01`, ToDate: `${year}-${String(end + 1).padStart(2, '0')}-31`, UserCompanyName: co, Title: `${year}년 거래처별 미수·미지급 현황 (${end + 1}월 기준)` }, rows };
+      }
       default: return null;
     }
-  }, [section, from, to, day, cashbook, ledger, ledgerOptions, custSum, queryRows, taxBook, dailyDetail, subulSum, prodSum, subulBook, priceRows, prodList, custList, phonebook, rcpQuery, bills, bbKind]);
+    })();
+    return one == null ? [] : Array.isArray(one) ? one : [one];
+  }, [section, rcvMode, qtr, year, quarter, receivable, customers, dailyByCust, from, to, day, cashbook, ledger, ledgerOptions, custSum, queryRows, taxBook, dailyDetail, subulSum, prodSum, subulBook, priceRows, prodList, custList, phonebook, rcpQuery, bills, bbKind]);
 
   const yearOptions = yearEnd.years.length ? yearEnd.years : [year];
 
@@ -701,13 +729,15 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
         ))}
       </div>
 
-      {rptSpec && (
-        <div className="flex items-center gap-2 text-xs">
-          <button onClick={() => setRptOpen(true)} className="flex items-center gap-1 border border-blue-300 text-blue-700 rounded px-2 py-1 hover:bg-blue-50 font-semibold"><BookOpen className="w-3 h-3" /> 원본 양식 인쇄 미리보기</button>
-          <span className="text-slate-500">원본 오케이세일 «{rptSpec.title}» 양식(좌표·글꼴 복원)으로 {rptSpec.rows.length.toLocaleString('ko-KR')}줄을 찍습니다.</span>
+      {rptSpecs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {rptSpecs.map((sp, i) => (
+            <button key={sp.key} onClick={() => setRptOpen(i)} className="flex items-center gap-1 border border-blue-300 text-blue-700 rounded px-2 py-1 hover:bg-blue-50 font-semibold"><BookOpen className="w-3 h-3" /> 원본 양식 인쇄 미리보기{rptSpecs.length > 1 ? ` — ${sp.title}` : ''}</button>
+          ))}
+          <span className="text-slate-500">원본 오케이세일 양식(좌표·글꼴 복원)으로 찍습니다.</span>
         </div>
       )}
-      {rptOpen && rptSpec && <RptPrintModal layoutKey={rptSpec.key} title={rptSpec.title} rows={rptSpec.rows.slice(0, 3000)} total={rptSpec.rows.length} params={rptSpec.params} onClose={() => setRptOpen(false)} />}
+      {rptOpen != null && rptSpecs[rptOpen] && <RptPrintModal layoutKey={rptSpecs[rptOpen].key} title={rptSpecs[rptOpen].title} rows={rptSpecs[rptOpen].rows.slice(0, 3000)} total={rptSpecs[rptOpen].rows.length} params={rptSpecs[rptOpen].params} onClose={() => setRptOpen(null)} />}
 
       {section === 'daily' && (
         <div className="space-y-3">

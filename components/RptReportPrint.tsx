@@ -63,7 +63,7 @@ function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOn
     const k = need > o.w && o.w > 0 ? Math.max(0.55, o.w / need) : 1;
     return (
       <div key={key} style={{ position: 'absolute', left: tw(o.l), top: tw(top), width: tw(o.w), height: tw(o.h), lineHeight: tw(o.h), fontSize: `${o.s || 9}pt`, fontWeight: o.b ? 700 : 400, textAlign: align, whiteSpace: 'nowrap', overflow: 'visible' }}>
-        <span style={{ display: 'inline-block', transform: `scaleX(${k})`, transformOrigin: align === 'right' ? 'right center' : align === 'center' ? 'center center' : 'left center', width: k < 1 ? `${100 / k}%` : undefined, textAlign: align }}>{text}</span>
+        {k < 1 ? <span style={{ display: 'inline-block', transform: `scaleX(${k})`, transformOrigin: align === 'right' ? 'right center' : align === 'center' ? 'center center' : 'left center', width: `${100 / k}%`, textAlign: align }}>{text}</span> : text}
       </div>
     );
   };

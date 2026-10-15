@@ -751,7 +751,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
           <span className="text-slate-500">원본 오케이세일 양식(좌표·글꼴 복원)으로 찍습니다.</span>
         </div>
       )}
-      {rptOpen != null && rptSpecs[rptOpen] && <RptPrintModal layoutKey={rptSpecs[rptOpen].key} title={rptSpecs[rptOpen].title} rows={rptSpecs[rptOpen].rows.slice(0, 3000)} total={rptSpecs[rptOpen].rows.length} params={rptSpecs[rptOpen].params} onClose={() => setRptOpen(null)} />}
+      {rptOpen != null && rptSpecs[rptOpen] && <RptPrintModal layoutKey={rptSpecs[rptOpen].key} title={rptSpecs[rptOpen].title} rows={rptSpecs[rptOpen].rows.slice(0, 1200)} total={rptSpecs[rptOpen].rows.length} params={rptSpecs[rptOpen].params} onClose={() => setRptOpen(null)} />}
 
       {section === 'daily' && (
         <div className="space-y-3">

@@ -323,6 +323,7 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
   };
 
   const isQuote = slip.slipType === 'ESTIMATE' || slip.slipType === 'CONTRACT';
+  const isInbound = slip.slipType === 'PURCHASE' || slip.slipType === 'RETURN_IN'; // 거래처가 보내고 우리가 받는 전표
   const ci = config.companyInfo;
   const ownParty = { own: true, name: ci.name, ceo: ci.ceo, bizNumber: ci.bizNumber, address: ci.address, bizType: ci.bizType, bizItem: ci.bizItem, tel: ci.tel, site: '', manager: '' };
   const custParty = { own: false, name: slip.customerName, ceo: customer?.ceo || '', bizNumber: customer?.bizNumber || '', address: slip.siteAddress || customer?.address || '', bizType: customer?.bizType || '', bizItem: customer?.bizItem || '', tel: customer?.tel || customer?.mobile || '', site: slip.siteName || '', manager: slip.siteManager || '' };
@@ -720,7 +721,7 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
 
               {/* Header Info Tables (공급자 · 공급받는 자) — 매입 전표는 거래처가 공급자, 우리 회사가 공급받는 자 */}
               <div className="grid grid-cols-2 gap-4 my-4">
-                {(slip.slipType === 'PURCHASE' ? [custParty, ownParty] : [ownParty, custParty]).map((party, idx) => (
+                {(isInbound ? [custParty, ownParty] : [ownParty, custParty]).map((party, idx) => (
                   <div key={idx} className="border border-slate-400 p-2 text-[11px]">
                     <div className="bg-slate-100 font-bold px-2 py-0.5 mb-1.5 border-b border-slate-300 text-blue-900 flex justify-between items-center">
                       <span>{idx === 0 ? '공급자' : '공급받는 자'}{party.own ? '' : ' (거래처)'}</span>
@@ -928,7 +929,7 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                   </div>
                   <div className="flex justify-around items-end pt-6">
                     {(isQuote ? [{ label: slip.slipType === 'ESTIMATE' ? '견적자' : '수주자', own: true }]
-                      : slip.slipType === 'PURCHASE' ? [{ label: '인수자', own: true }, { label: '납품자', own: false }]
+                      : isInbound ? [{ label: '인수자', own: true }, { label: '납품자', own: false }]
                       : [{ label: '인수자', own: false }, { label: '납품자', own: true }]).map(sg => (
                       <div key={sg.label}>
                         <span className="text-slate-500 text-[10px]">{sg.label} : </span>

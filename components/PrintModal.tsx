@@ -53,7 +53,8 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
   const handleDispatch = (channel: 'FAX' | 'KAKAO' | 'EMAIL') => {
     let defaultContact = '';
     if (channel === 'EMAIL') defaultContact = customer?.email || '';
-    if (channel === 'FAX' || channel === 'KAKAO') defaultContact = customer?.tel || customer?.mobile || '';
+    if (channel === 'FAX') defaultContact = customer?.fax || customer?.tel || customer?.mobile || ''; // 팩스는 팩스 번호 칸을 먼저
+    if (channel === 'KAKAO') defaultContact = customer?.tel || customer?.mobile || '';
     
     setDispatchModal({
       isOpen: true,
@@ -68,6 +69,10 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
       showToast('연락처(또는 이메일)를 입력해주세요.', 'error');
       return;
     }
+    if (channel === 'FAX' && contact.replace(/\D/g, '').length < 8) {
+      showToast('팩스 번호가 너무 짧습니다. 지역번호까지 입력해 주세요.', 'error');
+      return;
+    }
 
     setDispatchModal(prev => ({ ...prev, isOpen: false }));
     setDispatchStatus('SENDING');
@@ -78,39 +83,12 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
       // FAX의 경우 화면을 캡처하여 PDF Base64 생성
       if (channel === 'FAX') {
         showToast('⏳ 팩스 전송을 위해 PDF를 생성 중입니다...', 'info', 5000);
-        const element = document.getElementById('pdf-printable-area');
-        if (printType === 'original') {
-          // 원본 양식은 팩스로 «받는 쪽 한 벌»(공급받는자 보관용)만 벡터 PDF로 보낸다 — 우리 보관용은 보내지 않는다(예전 팩스 방식).
-          const { createPdfBuilder, finishPdf, bytesToBase64 } = await import('@/lib/pdfExport');
-          const { appendReactPages } = await import('@/lib/pdfOffscreen');
-          const b = await createPdfBuilder();
-          await appendReactPages(b, <SlipOriginalForm slip={slip} config={config} customer={customer} copies="recipient" />);
-          fileBase64 = bytesToBase64(await finishPdf(b));
-        } else if (element) {
-          const scrollWrapper = element.parentElement;
-          const originalOverflow = scrollWrapper!.style.overflow;
-          const originalHeight = scrollWrapper!.style.height;
-          scrollWrapper!.style.overflow = 'visible';
-          scrollWrapper!.style.height = 'auto';
-
-          const html2canvas = (await import('html2canvas')).default;
-          const { jsPDF } = await import('jspdf');
-          
-          const canvas = await html2canvas(element, { scale: 2, scrollY: -window.scrollY });
-          
-          scrollWrapper!.style.overflow = originalOverflow;
-          scrollWrapper!.style.height = originalHeight;
-          const imgData = canvas.toDataURL('image/png');
-          
-          const pdf = new jsPDF('p', 'mm', 'a4');
-          const pdfWidth = pdf.internal.pageSize.getWidth();
-          const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-          
-          pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-          // Get base64 string without the data URL prefix
-          const dataUri = pdf.output('datauristring') as string;
-          fileBase64 = dataUri.split(',')[1];
-        }
+        // 팩스는 어느 탭에서 눌러도 «원본 양식의 받는 쪽 한 벌»(공급받는자 보관용)만 벡터 PDF로 보낸다 — 우리 보관용은 보내지 않는다(예전 팩스 방식).
+        const { createPdfBuilder, finishPdf, bytesToBase64 } = await import('@/lib/pdfExport');
+        const { appendReactPages } = await import('@/lib/pdfOffscreen');
+        const b = await createPdfBuilder();
+        await appendReactPages(b, <SlipOriginalForm slip={slip} config={config} customer={customer} copies="recipient" />);
+        fileBase64 = bytesToBase64(await finishPdf(b));
       }
 
       const res = await fetch('/api/dispatch', {
@@ -1181,9 +1159,18 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
         <div className="p-3 border-t border-slate-200 bg-slate-50 flex flex-wrap justify-between items-center gap-2 print:hidden rounded-b-lg">
           <div className="flex flex-wrap items-center gap-2">
             <button
+              onClick={() => { setPrintType('original'); setSlipCopies('recipient'); handleDispatch('FAX'); }}
+              disabled={dispatchStatus === 'SENDING'}
+              className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center gap-1 shadow-sm disabled:opacity-50 transition-colors"
+              title="원본 양식의 받는 쪽 한 벌(공급받는자 보관용)을 팩스로 보냅니다. 번호를 확인하는 창이 뜨고, 「발송하기」를 눌러야 실제로 나갑니다."
+            >
+              📠 받는 쪽 한 벌 바로 팩스
+            </button>
+            <button
               onClick={() => handleDispatch('FAX')}
               disabled={dispatchStatus === 'SENDING'}
               className="px-3 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs flex items-center gap-1 shadow-sm disabled:opacity-50 transition-colors"
+              title="지금 보이는 탭과 관계없이 원본 양식의 받는 쪽 한 벌을 보냅니다."
             >
               📠 팩스 발송
             </button>
@@ -1276,15 +1263,24 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
                     return <option key={c.id} value={c.email}>{c.name} {c.ceo ? `(${c.ceo})` : ''}</option>;
                   }
                   if (dispatchModal.channel === 'FAX' || dispatchModal.channel === 'KAKAO') {
-                    const number = c.tel || c.mobile;
+                    const number = dispatchModal.channel === 'FAX' ? (c.fax || c.tel || c.mobile) : (c.tel || c.mobile);
                     if (number) return <option key={c.id} value={number}>{c.name} {c.ceo ? `(${c.ceo})` : ''}</option>;
                   }
                   return null;
                 })}
               </datalist>
-              <p className="text-xs text-slate-500 mt-2">
-                실제 전송 테스트를 원하시면 본인의 연락처/이메일을 입력 후 발송해보세요.
-              </p>
+              {dispatchModal.channel === 'FAX' ? (
+                <div className="mt-2 text-xs bg-amber-50 border border-amber-200 rounded p-2 space-y-0.5 text-amber-900">
+                  <p><b>보내는 문서</b>: 거래명세표 원본 양식 — <b>받는 쪽 한 벌</b>(공급받는자 보관용)</p>
+                  <p><b>받는 곳</b>: {slip.customerName} · 전표 {slip.slipNo}</p>
+                  <p className="text-amber-700">팩스 번호를 한 번 더 확인하세요. 「발송하기」를 누르면 <b>실제로 팩스가 나갑니다</b>.</p>
+                  {dispatchModal.contact.replace(/\D/g, '').length < 8 && <p className="text-red-600 font-semibold">팩스 번호가 비어 있거나 짧습니다.</p>}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 mt-2">
+                  실제 전송 테스트를 원하시면 본인의 연락처/이메일을 입력 후 발송해보세요.
+                </p>
+              )}
             </div>
             
             <div className="flex justify-end gap-2">

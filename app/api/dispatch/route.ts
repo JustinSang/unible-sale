@@ -35,9 +35,9 @@ export async function POST(request: Request) {
         let updateData: any = {};
         if (channel === 'EMAIL' && customer.email !== targetContact) {
           updateData.email = targetContact;
-        } else if (channel === 'FAX' && customer.tel !== targetContact) {
-          // Typically fax is saved to tel or mobile, we update tel here if it's different and FAX was sent
-          updateData.tel = targetContact;
+        } else if (channel === 'FAX' && customer.fax !== targetContact) {
+          // 팩스 번호는 팩스 칸에 저장한다(예전에는 전화번호(tel)를 팩스 번호로 덮어써 거래처 전화번호가 사라졌다).
+          updateData.fax = targetContact;
         }
         
         if (Object.keys(updateData).length > 0) {

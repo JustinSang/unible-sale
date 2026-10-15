@@ -56,14 +56,20 @@ function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOn
     }
     let text = '', right = false;
     if (o.k === 't') { text = sub(o.x || '').replace(/\{@?[^}]*\}/g, m => m); if (inDetail && /^\d+$/.test(text.trim()) && row?.Count != null) text = String(row.Count); /* 합계표 상세의 «1»은 매수 자리 표시 */ }
-    else { const v = val(o, row, rowNo, inDetail); text = v.text; right = v.right; }
+    else {
+      const v = val(o, row, rowNo, inDetail); text = v.text; right = v.right;
+      // 칸 너비로 날짜 표기를 정한다(원본 굴림체 고정폭 추정): 10자 이상 들어가면 YYYY-MM-DD, 8자면 YY-MM-DD, 5자면 MM-DD. 예) 거래처원장 일자 칸 462twip → «01-06»
+      if (!(o.r || '').startsWith('@') && /^\d{4}-\d{2}-\d{2}$/.test(text)) { const cap = Math.floor(o.w / (0.5 * (o.s || 9) * 20)); text = cap >= 10 ? text : cap >= 8 ? text.slice(2) : cap >= 5 ? text.slice(5) : text; }
+    }
     if (o.k === 't' && /^\s*$/.test(text)) return null;
     const align = o.k === 't' ? (o.a === 2 ? 'center' : o.a === 3 ? 'right' : 'left') : right ? 'right' : 'left';
     // 원본 글꼴(굴림체, 한글 1em·영숫자 0.5em 고정폭)보다 대체 글꼴이 넓어 칸을 넘으면 가로로 줄여 맞춘다.
     const need = [...text].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 1 : 0.5), 0) * (o.s || 9) * 20;
-    const k = need > o.w && o.w > 0 ? Math.max(0.55, o.w / need) : 1;
+    const ratio = need > o.w && o.w > 0 ? o.w / need : 1;
+    const k = Math.max(0.8, ratio); // 0.8배까지만 줄이고 그보다 길면 잘라서 읽을 수 있게 둔다
+    const clip = ratio < 0.8;
     return (
-      <div key={key} style={{ position: 'absolute', left: tw(o.l), top: tw(top), width: tw(o.w), height: tw(o.h), lineHeight: tw(o.h), fontSize: `${o.s || 9}pt`, fontWeight: o.b ? 700 : 400, textAlign: align, whiteSpace: 'nowrap', overflow: 'visible' }}>
+      <div key={key} style={{ position: 'absolute', left: tw(o.l), top: tw(top), width: tw(o.w), height: tw(o.h), lineHeight: tw(o.h), fontSize: `${o.s || 9}pt`, fontWeight: o.b ? 700 : 400, textAlign: align, whiteSpace: 'nowrap', overflow: clip ? 'hidden' : 'visible' }}>
         {k < 1 ? <span style={{ display: 'inline-block', transform: `scaleX(${k})`, transformOrigin: align === 'right' ? 'right center' : align === 'center' ? 'center center' : 'left center', width: `${100 / k}%`, textAlign: align }}>{text}</span> : text}
       </div>
     );
@@ -87,6 +93,10 @@ function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOn
   heads.forEach((s, i) => { s.o.forEach((o, j) => parts.push(draw(o, `h${i}-${j}`, y))); y += s.h; });
   const bodyTop = y;
   rows.forEach((r, i) => { det?.o.forEach((o, j) => parts.push(draw(o, `d${i}-${j}`, bodyTop + i * (det?.h || 0), r, firstRowNo + i, true))); });
+  // 열 머리에 «No»가 있는데 상세에 번호 칸(RecordNumber·No)이 없는 양식은 번호를 그 칸에 채운다(전화번호부 등).
+  const noHead = heads.flatMap(sct => sct.o).find(o => o.k === 't' && /^\s*No\.?\s*$/.test(o.x || ''));
+  const hasNoField = !!det?.o.some(o => o.k === 'f' && /(^|\.)(RecordNumber|No)$/.test(o.r || ''));
+  if (noHead && !hasNoField && det) rows.forEach((_, i) => parts.push(draw({ k: 'f', l: noHead.l, t: 60, w: noHead.w, h: 200, r: 'RecordNumber', s: 8, a: 2 } as Obj, `no${i}`, bodyTop + i * det.h, undefined, firstRowNo + i, true)));
   if (isLast && rf && !(rf.h > 1500)) { let ry = bodyTop + rows.length * (det?.h || 0); rfs.forEach((r, k) => { r.o.forEach((o, j) => parts.push(draw(o, `rf${k}-${j}`, ry))); ry += r.h; }); }
   if (pf) pf.o.forEach((o, j) => parts.push(draw(o, `pf${j}`, h - BOTTOM_MARGIN - pf.h)));
   return (

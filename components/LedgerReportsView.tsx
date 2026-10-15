@@ -537,16 +537,16 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   const subulBook = useMemo(() => {
     const q = sbQ.trim(); if (!q) return { rows: [] as (string | number)[][], open: 0, name: '' };
     const keyMatch = (it: { productName: string; spec?: string }) => `${it.productName} ${it.spec || ''}`.includes(q);
-    const ev: { d: string; no: string; kind: string; who: string; site: string; qty: number; price: number; amt: number; sg: number; spec: string }[] = [];
+    const ev: { d: string; no: string; kind: string; who: string; site: string; qty: number; price: number; amt: number; sg: number; spec: string; unit: string }[] = [];
     slips.forEach(sl => {
       const k = kindOf(sl); if (k === 'other') return;
       const sg = k === 'sales' || k === 'purchaseReturn' ? -1 : 1;
-      (sl.items || []).forEach(it => { if (keyMatch(it)) ev.push({ d: sl.slipDate, no: sl.slipNo, kind: KIND_NAME[k], who: sl.customerName, site: sl.siteName || '', qty: it.qty, price: it.unitPrice, amt: it.supplyAmount, sg, spec: it.spec || '' }); });
+      (sl.items || []).forEach(it => { if (keyMatch(it)) ev.push({ d: sl.slipDate, no: sl.slipNo, kind: KIND_NAME[k], who: sl.customerName, site: sl.siteName || '', qty: it.qty, price: it.unitPrice, amt: it.supplyAmount, sg, spec: it.spec || '', unit: it.unit || '' }); });
     });
     ev.sort((a, b) => a.d.localeCompare(b.d) || a.no.localeCompare(b.no));
     const open0 = products.filter(pr => `${pr.name} ${pr.spec || ''}`.includes(q)).reduce((a, pr) => a + (pr.openingStock || 0), 0);
     let bal = open0; const rows: (string | number)[][] = [];
-    ev.forEach(e => { bal += e.sg * e.qty; if (e.d >= from && e.d <= to) rows.push([e.d, e.kind, `${e.who}${e.site ? ` / ${e.site}` : ''}`, e.spec, e.sg > 0 ? e.qty : '', e.sg < 0 ? e.qty : '', e.price, e.amt, bal]); });
+    ev.forEach(e => { bal += e.sg * e.qty; if (e.d >= from && e.d <= to) rows.push([e.d, e.kind, `${e.who}${e.site ? ` / ${e.site}` : ''}`, e.spec, e.sg > 0 ? e.qty : '', e.sg < 0 ? e.qty : '', e.price, e.amt, bal, e.unit]); });
     return { rows, open: open0, name: q };
   }, [slips, products, sbQ, from, to]);
 
@@ -678,7 +678,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
       case 'dailydetail': { const h = dailyDetail.head; return { key: 'DailyDetailBalance', title: '일계 상세', params: { ...base, FromDate: day, ToDate: day, Title: '일계 상세', SalesTotal: won(h.salesTot), Cost: won(h.costTot), Benefit: won(h.profitTot), BenefitRate: `${h.rate.toFixed(1)}`, Receipt: won(h.rcp), BuyingTotal: won(h.buyTot), BuyingTax: won(h.tax), SalesTax: '', Payment: won(h.paid) }, rows: dailyDetail.rows.map(r => ({ SlipDate: r.date, Kind: r.kind, ProductName: `${r.cust} / ${r.productName}`, Spec: r.spec, Qty: r.qty ?? '', Price: r.price ?? '', Amount: r.amount, Cost: r.cost ?? '', Benefit: r.profit ?? '', Rate: r.profit != null && r.amount ? ((r.profit / r.amount) * 100).toFixed(1) : '' })) }; }
       case 'subulsum': return [{ key: 'SubulSummary', title: '상품수불집계표', params: base, rows: subulSum.rows.map(r => ({ ProductName: r[0], Unit: r[1], Spec: r[2], BeforeStockQty: r[3], BuyingQty: r[4], ReturnSalesQty: r[5], SalesQty: r[6], ReturnBuyingQty: r[7], StockQty: r[8], PurchasePrice: r[9], StockAmount: r[10] })) }, { key: 'Customer1', title: '상품수불집계표(변형)', params: base, rows: subulSum.rows.map(r => ({ ProductName: r[0], Unit: r[1], Spec: r[2], BeforeStockQty: r[3], BuyingQty: r[4], ReturnSalesQty: r[5], SalesQty: r[6], ReturnBuyingQty: r[7], StockQty: r[8], PurchasePrice: r[9], StockAmount: r[10] })) }];
       case 'prodsum': return { key: 'SubulSummaryAmount', title: '상품매입매출집계표', params: { ...base, FromProductsName: '', ToProductsName: '' }, rows: prodSum.rows.map((r, i) => ({ No: i + 1, ProductName: r[0], Spec: r[1], Unit: r[2], BuyingQty: r[3], ReturnSalesQty: r[4], SalesQty: r[5], ReturnBuyingQty: r[6], BuyingAmount: r[7], ReturnSalesAmount: r[8], SalesAmount: r[9], ReturnBuyingAmount: r[10] })) };
-      case 'subulbook': return { key: 'Subul', title: '상품수불장', params: base, rows: subulBook.rows.map(r => ({ strDate: r[0], ProductName: r[2], Spec: r[3], BuyingQty: r[4], SalesQty: r[5], Price: r[6], Amount: r[7], StockQty: r[8] })) };
+      case 'subulbook': return { key: 'Subul', title: '상품수불장', params: base, rows: subulBook.rows.map(r => ({ strDate: r[0], Unit: r[9], ProductName: r[2], Spec: r[3], BuyingQty: r[4], SalesQty: r[5], Price: r[6], Amount: r[7], StockQty: r[8] })) };
       case 'pricelist': return { key: 'PriceList', title: '단가표', params: base, rows: priceRows.rows.map(r => ({ ProductName: r.name, Spec: r.spec, Price: r.p1 })) };
       case 'prodlist': return [{ key: 'Gaego', title: '상품재고리스트', params: base, rows: prodList.rows.map(r => ({ ProductName: r.name, Spec: r.spec, Unit: r.unit, Qty: r.stock, Price: r.cost, Amount: r.value })) }, { key: 'PRODUCTS', title: '상품코드리스트', params: base, rows: prodList.rows.map(r => ({ ProductName: r.name, Spec: r.spec, Unit: r.unit, PurchasePrice: r.cost, SalesPrice: r.sell })) }, { key: 'products1', title: '상품목록(초안 양식)', params: base, rows: prodList.rows.map(r => ({ ProductsName: r.name, Standard: r.spec, Unit: r.unit, BuyingPrice: r.cost, SalesPrice: r.sell, StockQtyOnHand: r.stock })) }];
       case 'custlist': return { key: 'Customer', title: '거래처리스트', params: base, rows: custList.map(c => ({ CustomerName: c.name, Post: c.post || '', OwnerName: c.ceo, ChargerName: c.contactName || '', TelephoneNo1: cleanTel(c.tel), TelephoneNo2: cleanTel(c.tel2 || c.mobile), FaxNo: cleanTel(c.fax), Address1Zip: c.zip || '', Address1: c.address })) };
@@ -711,7 +711,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
         let end = 11; for (let i = 11; i >= 0; i--) if (receivable.rows.some(r => r.m[i] !== 0)) { end = i; break; }
         const tel = new Map(customers.map(c => [c.id, cleanTel(c.tel)]));
         const rows = receivable.rows.map(r => ({ CustomerName: r.name, TelephoneNo1: tel.get(r.id) || '', Balance: r.m.slice(0, end + 1).reduce((a, b) => a + b, 0), Month3Receipt: r.m[end] || 0, Month2Receipt: end >= 1 ? r.m[end - 1] : 0, Month1Receipt: end >= 2 ? r.m[end - 2] : 0, BeforeBalance: end >= 3 ? r.m.slice(0, end - 2).reduce((a, b) => a + b, 0) : 0 }));
-        return { key: 'ReceiptPaymentSummary', title: '미수·미지급 집계표', params: { FromDate: `${year}-01-01`, ToDate: `${year}-${String(end + 1).padStart(2, '0')}-31`, UserCompanyName: co, Title: `${year}년 거래처별 미수·미지급 현황 (${end + 1}월 기준)` }, rows };
+        return { key: 'ReceiptPaymentSummary', title: '미수·미지급 집계표', params: { FromDate: `${year}-01-01`, ToDate: `${year}-${String(end + 1).padStart(2, '0')}-31`, UserCompanyName: co, Title: '미수금·미지급금 현황' }, rows };
       }
       case 'sitebook': { const pbp2 = { ...base, CustomerCompanyName: qCust || '전체' }; const rr = queryRows.map(r => ({ SlipDate: r.date, KindName: r.kind, ProductName: r.name, Spec: r.spec, Unit: r.unit, Qty: r.qty, Price: r.price, Amount: r.amount, Tax: r.tax, Comments: r.site })); return [{ key: 'PostBook', title: '현장별입출고대장', params: pbp2, rows: rr }, { key: 'SiteBook', title: '현장별입출고대장(현장 변형)', params: pbp2, rows: rr }]; }
       default: return null;
@@ -1409,7 +1409,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
             <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
             {subulBook.name && <span className="text-slate-500">이월재고 {subulBook.open}</span>}
           </div>
-          {subulBook.name ? <ReportTable head={['일자', '구분', '품명/거래처', '규격', '입고', '출고', '단가', '금액', '잔고']} rows={subulBook.rows} numFrom={4} /> : <p className="text-xs text-slate-500">품명이나 규격 일부를 넣으면 그 품목들의 입고·출고·잔고를 날짜순으로 보여줍니다.</p>}
+          {subulBook.name ? <ReportTable head={['일자', '구분', '품명/거래처', '규격', '입고', '출고', '단가', '금액', '잔고']} rows={subulBook.rows.map(r => r.slice(0, 9))} numFrom={4} /> : <p className="text-xs text-slate-500">품명이나 규격 일부를 넣으면 그 품목들의 입고·출고·잔고를 날짜순으로 보여줍니다.</p>}
           <p className="text-[11px] text-slate-500">원본 «상품수불장»(일자·품명/거래처·규격/현장명·입고·출고·단가·금액·잔고)을 따랐습니다. 잔고는 검색된 품목 전체의 합산 누계입니다.</p>
         </div>
       )}

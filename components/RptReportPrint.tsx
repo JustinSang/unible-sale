@@ -3,6 +3,7 @@
 import React from 'react';
 import { Printer, X } from 'lucide-react';
 import layouts from '@/lib/rptLayouts.json';
+import { askSaveHandle, safeName } from '@/lib/pdfExport';
 
 // 오케이세일(머니플러스) 보고서(.rpt) 인쇄 양식 — 원본 파일을 해독해 복원한 구역·좌표·글꼴을 그대로 쓴다.
 // 근거: docs/analysis_rea/oksale/reports/rpt_layout.py (스키마 0x07xx 레코드 트리, 누적 XOR 마스크) → lib/rptLayouts.json.
@@ -80,14 +81,14 @@ function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOn
     // 합계표처럼 «보고서 끝» 구역이 한 쪽을 차지하는 양식: 줄 쪽들 뒤에 그 구역만 따로 한 쪽으로 찍는다.
     let ry = 0; rfs.forEach((r, k) => { r.o.forEach((o, j) => parts.push(draw(o, `rf${k}-${j}`, ry))); ry += r.h; });
     return (
-      <div style={{ position: 'relative', width: tw(w), height: tw(h), margin: '0 auto 8px', background: '#fff', border: '1px solid #cbd5e1', pageBreakAfter: 'always', fontFamily: '"GulimChe","Gulim","Malgun Gothic","Apple SD Gothic Neo",sans-serif', color: '#000' }}>{parts}</div>
+      <div data-pdf-page="" style={{ position: 'relative', width: tw(w), height: tw(h), margin: '0 auto 8px', background: '#fff', border: '1px solid #cbd5e1', pageBreakAfter: 'always', fontFamily: '"GulimChe","Gulim","Malgun Gothic","Apple SD Gothic Neo",sans-serif', color: '#000' }}>{parts}</div>
     );
   }
   if (single) {
     // 전표 하나를 구역마다 한 번씩 찍는 양식(rptSlipStatus 등 선인쇄용): 머리 구역(숨은 영문 머리글)은 건너뛰고 상세 구역만 차례로.
     sec('detail').forEach((d, k) => { d.o.forEach((o, j) => parts.push(draw(o, `s${k}-${j}`, y, rows[0], 1, true))); y += d.h; });
     return (
-      <div style={{ position: 'relative', width: tw(w), height: tw(h), margin: '0 auto 8px', background: '#fff', border: '1px solid #cbd5e1', pageBreakAfter: 'always', fontFamily: '"GulimChe","Gulim","Malgun Gothic","Apple SD Gothic Neo",sans-serif', color: '#000' }}>{parts}</div>
+      <div data-pdf-page="" style={{ position: 'relative', width: tw(w), height: tw(h), margin: '0 auto 8px', background: '#fff', border: '1px solid #cbd5e1', pageBreakAfter: 'always', fontFamily: '"GulimChe","Gulim","Malgun Gothic","Apple SD Gothic Neo",sans-serif', color: '#000' }}>{parts}</div>
     );
   }
   heads.forEach((s, i) => { s.o.forEach((o, j) => parts.push(draw(o, `h${i}-${j}`, y))); y += s.h; });
@@ -100,11 +101,23 @@ function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOn
   if (isLast && rf && !(rf.h > 1500)) { let ry = bodyTop + rows.length * (det?.h || 0); rfs.forEach((r, k) => { r.o.forEach((o, j) => parts.push(draw(o, `rf${k}-${j}`, ry))); ry += r.h; }); }
   if (pf) pf.o.forEach((o, j) => parts.push(draw(o, `pf${j}`, h - BOTTOM_MARGIN - pf.h)));
   return (
-    <div style={{ position: 'relative', width: tw(w), height: tw(h), margin: '0 auto 8px', background: '#fff', border: '1px solid #cbd5e1', pageBreakAfter: 'always', fontFamily: '"GulimChe","Gulim","Malgun Gothic","Apple SD Gothic Neo",sans-serif', color: '#000' }}>{parts}</div>
+    <div data-pdf-page="" style={{ position: 'relative', width: tw(w), height: tw(h), margin: '0 auto 8px', background: '#fff', border: '1px solid #cbd5e1', pageBreakAfter: 'always', fontFamily: '"GulimChe","Gulim","Malgun Gothic","Apple SD Gothic Neo",sans-serif', color: '#000' }}>{parts}</div>
   );
 }
 
-export function RptReportPages({ layoutKey, rows, params, single }: { layoutKey: string; rows: RptRow[]; params: Record<string, string>; single?: boolean }) {
+/** 이 양식·줄 수일 때 총 쪽 수와 쪽당 줄 수(PDF 내보내기가 쪽 묶음 단위로 나눠 그릴 때 쓴다). */
+export function rptPageInfo(layoutKey: string, rowCount: number): { pages: number; cap: number } {
+  const lay = LAYOUTS[layoutKey];
+  if (!lay) return { pages: 1, cap: 1 };
+  const h = lay.landscape ? 11906 : 16838;
+  const hs = (r: Sec['role']) => lay.sections.filter(s => s.role === r).reduce((a, s) => a + s.h, 0);
+  const rowH = lay.sections.find(s => s.role === 'detail')?.h || 300;
+  const bigRf = hs('rf') > 1500;
+  const cap = Math.max(1, Math.floor((h - BOTTOM_MARGIN - hs('pf') - hs('ph') - hs('ch') - (bigRf ? 0 : hs('rf'))) / rowH));
+  return { pages: Math.max(1, Math.ceil(rowCount / cap)) + (bigRf ? 1 : 0), cap };
+}
+
+export function RptReportPages({ layoutKey, rows, params, single, pageRange }: { layoutKey: string; rows: RptRow[]; params: Record<string, string>; single?: boolean; pageRange?: [number, number] }) {
   const lay = LAYOUTS[layoutKey];
   if (!lay) return <p className="text-sm text-red-600">«{layoutKey}» 양식 좌표가 없습니다.</p>;
   const w = lay.landscape ? 16838 : 11906, h = lay.landscape ? 11906 : 16838;
@@ -117,25 +130,42 @@ export function RptReportPages({ layoutKey, rows, params, single }: { layoutKey:
   const pages = rowPages + (bigRf ? 1 : 0);
   return (
     <div>
-      {Array.from({ length: pages }, (_, p) => (
+      {Array.from({ length: pages }, (_, p) => p).filter(p => !pageRange || (p >= pageRange[0] && p < pageRange[1])).map(p => (
         <Page key={p} lay={lay} pageNo={p + 1} pages={pages} rows={p < rowPages ? rows.slice(p * cap, (p + 1) * cap) : []} firstRowNo={p * cap + 1} params={params} isLast={p === rowPages - 1} w={w} h={h} rfOnly={bigRf && p === rowPages} />
       ))}
     </div>
   );
 }
 
-export function RptPrintModal({ layoutKey, title, rows, params, onClose, total }: { layoutKey: string; title: string; rows: RptRow[]; params: Record<string, string>; onClose: () => void; total?: number }) {
+export function RptPrintModal({ layoutKey, title, rows, params, onClose, total, allRows }: { layoutKey: string; title: string; rows: RptRow[]; params: Record<string, string>; onClose: () => void; total?: number; allRows?: RptRow[] }) {
+  const [busy, setBusy] = React.useState<string>('');
+  const [msg, setMsg] = React.useState<string>('');
+  const savePdf = async () => {
+    const name = `${safeName(title)}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    try {
+      const handle = await askSaveHandle(name); // 사용자 클릭 직후에 저장 위치부터 받는다
+      if (handle === null) { setMsg('저장을 취소했습니다.'); return; }
+      setBusy('준비 중'); setMsg('');
+      const { exportReportPdf } = await import('@/lib/pdfJobs');
+      const r = await exportReportPdf({ layoutKey, rows: allRows || rows, params, filename: name, handle, onProgress: p => setBusy(`${p.label} (${p.done}/${p.total}쪽)`) });
+      setMsg(`PDF ${r.pages}쪽 저장 완료 (${(r.bytes / 1024).toFixed(0)}KB) — ${name}`);
+    } catch (e: any) {
+      console.error(e); setMsg(`PDF 저장 중 오류: ${e?.message || e}`);
+    } finally { setBusy(''); }
+  };
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl my-auto flex flex-col max-h-[95vh] print:m-0 print:p-0 print:w-full print:max-w-none print:shadow-none print:block print:h-auto print:max-h-none print:static">
         <div className="p-3 border-b border-slate-200 flex items-center justify-between bg-slate-50 rounded-t-lg print:hidden">
           <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2"><Printer className="w-4 h-4 text-blue-600" /> 원본 양식 인쇄 미리보기 — {title} ({rows.length.toLocaleString('ko-KR')}줄{total && total > rows.length ? ` · 화면 성능을 위해 앞 ${rows.length.toLocaleString('ko-KR')}줄만 — 전체 ${total.toLocaleString('ko-KR')}줄은 조건을 좁히세요` : ''})</h3>
           <div className="flex items-center gap-2">
+            <button onClick={savePdf} disabled={!!busy} className="px-3 py-1.5 rounded-md border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-bold text-xs disabled:opacity-60">{busy ? busy : '📄 PDF 저장'}</button>
             <button onClick={() => window.print()} className="px-4 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5"><Printer className="w-3.5 h-3.5" /> 인쇄 (Ctrl+P)</button>
             <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 rounded"><X className="w-5 h-5" /></button>
           </div>
         </div>
         <div className="p-4 overflow-auto flex-1 bg-neutral-100/60 print:bg-white print:p-0 print:overflow-visible">
+          {msg && <p className="text-xs mb-2 text-slate-700 bg-white border border-slate-200 rounded px-2 py-1 print:hidden">{msg}</p>}
           <RptReportPages layoutKey={layoutKey} rows={rows} params={params} />
         </div>
       </div>

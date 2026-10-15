@@ -68,7 +68,7 @@ export function OriginalFormReport({ slip, kind, own, counterpart, seal }: Props
         const bodyBottom = bodyTop + rows.length * ROW_H;
         let no0 = pages.slice(0, p).reduce((a, r) => a + r.length, 0);
         return (
-          <div key={p} style={{ position: 'relative', width: tw(PAGE_W), height: tw(PAGE_H), margin: '0 auto 8px', border: '1px solid #cbd5e1', pageBreakAfter: 'always' }}>
+          <div key={p} data-pdf-page="" style={{ position: 'relative', width: tw(PAGE_W), height: tw(PAGE_H), margin: '0 auto 8px', border: '1px solid #cbd5e1', pageBreakAfter: 'always' }}>
             {isFirst && (
               <>
                 <T l={4389} t={isEst ? 741 : 720} w={3147} h={isEst ? 484 : 450} align="center" size={18} bold>{isEst ? '見  積  書' : kind === 'request' ? '견적의뢰서' : '發 注 書'}</T>

@@ -4,6 +4,7 @@ import { displayProductName } from '@/lib/productName';
 import { OriginalSlipForm } from './OriginalSlipForm';
 import { OriginalFormReport } from './OriginalFormReport';
 import { RptReportPages, type RptRow } from './RptReportPrint';
+import { normSlipType } from '@/lib/slipType';
 import React, { useState } from 'react';
 import { Printer, X, FileText, Receipt } from 'lucide-react';
 import type { Slip, SystemConfig, Customer } from '@/types';
@@ -20,7 +21,9 @@ interface PrintModalProps {
 // 이관 데이터에는 원본 입력 마스크(«___-__-_____»·«_011)492_-7864»)가 그대로 들어 있다 — 숫자가 없으면 빈칸, 있으면 밑줄만 뺀다.
 const cleanMask = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').trim() : '');
 
-export function PrintModal({ slip, config, customer: customerProp, customers = [], isOpen, onClose }: PrintModalProps) {
+export function PrintModal({ slip: slipProp, config, customer: customerProp, customers = [], isOpen, onClose }: PrintModalProps) {
+  // 이관 전표는 유형 표기가 'sales'·'return_sales'처럼 섞여 있어 표준형(SALES·RETURN_IN…)으로 맞춘 뒤 쓴다.
+  const slip = slipProp ? { ...slipProp, slipType: normSlipType(slipProp.slipType) } : slipProp;
   const customer = customerProp ? { ...customerProp, bizNumber: cleanMask(customerProp.bizNumber), tel: cleanMask(customerProp.tel), mobile: cleanMask(customerProp.mobile), fax: cleanMask(customerProp.fax) } : customerProp;
   const [printType, setPrintType] = useState<'statement' | 'receipt' | 'original' | 'request' | 'misc'>('statement');
   const [miscKey, setMiscKey] = useState<string>('rptSlipStatus');
@@ -74,7 +77,14 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
       if (channel === 'FAX') {
         showToast('⏳ 팩스 전송을 위해 PDF를 생성 중입니다...', 'info', 5000);
         const element = document.getElementById('pdf-printable-area');
-        if (element) {
+        const vectorPages = element ? Array.from(element.querySelectorAll<HTMLElement>('[data-pdf-page]')) : [];
+        if (vectorPages.length > 0) {
+          // 원본 양식 탭이면 비트맵 대신 벡터 PDF를 첨부한다(팩스에서도 글자가 또렷하다).
+          const { createPdfBuilder, appendDomPage, finishPdf, bytesToBase64 } = await import('@/lib/pdfExport');
+          const b = await createPdfBuilder();
+          for (const pg of vectorPages) await appendDomPage(b, pg);
+          fileBase64 = bytesToBase64(await finishPdf(b));
+        } else if (element) {
           const scrollWrapper = element.parentElement;
           const originalOverflow = scrollWrapper!.style.overflow;
           const originalHeight = scrollWrapper!.style.height;
@@ -126,10 +136,27 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
     }
   };
 
+  // 원본 양식 탭(좌표 복원 양식)은 비트맵이 아니라 «벡터 PDF»(글자 선명·용량 작음·여러 쪽)로 만든다.
+  const handleVectorPdf = async (pages: HTMLElement[]) => {
+    const KINDS: Record<string, string> = { SALES: '매출', PURCHASE: '매입', RETURN_IN: '반입', RETURN_OUT: '반출', ESTIMATE: '견적', ORDER: '발주', DELIVERY: '납품', CONTRACT: '수주' };
+    const { askSaveHandle, safeName, createPdfBuilder, appendDomPage, finishPdf, savePdfBytes } = await import('@/lib/pdfExport');
+    const name = `${safeName(`${slip.slipNo}_${slip.customerName}_${KINDS[slip.slipType] || '전표'}`)}.pdf`;
+    const handle = await askSaveHandle(name);
+    if (handle === null) { showToast('ℹ️ 저장이 취소되었습니다.', 'info'); return; }
+    showToast('⏳ PDF를 만드는 중입니다...', 'info', 8000);
+    const b = await createPdfBuilder();
+    for (const pg of pages) await appendDomPage(b, pg);
+    const bytes = await finishPdf(b);
+    await savePdfBytes(bytes, name, handle);
+    showToast(`✅ PDF ${b.pageCount}쪽을 저장했습니다 (${Math.round(bytes.length / 1024)}KB).`, 'success');
+  };
+
   const handleDownloadPDF = async () => {
     try {
       const element = document.getElementById('pdf-printable-area');
       if (!element) return;
+      const vectorPages = Array.from(element.querySelectorAll<HTMLElement>('[data-pdf-page]'));
+      if (vectorPages.length > 0) { await handleVectorPdf(vectorPages); return; }
       
       const suggestedName = `명세서_${slip.slipNo || '문서'}.pdf`;
       let handle = null;
@@ -171,8 +198,12 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
       
+      // 화면이 한 쪽보다 길면 여러 쪽으로 나눈다(예전에는 한 쪽에 넘치는 부분이 잘렸다).
+      const pageH = pdf.internal.pageSize.getHeight();
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      
+      let rest = pdfHeight - pageH, offY = 0;
+      while (rest > 1) { offY -= pageH; pdf.addPage(); pdf.addImage(imgData, 'PNG', 0, offY, pdfWidth, pdfHeight); rest -= pageH; }
+
       if (handle) {
         const blob = pdf.output('blob');
         const writable = await handle.createWritable();

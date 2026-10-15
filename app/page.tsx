@@ -14,6 +14,7 @@ import { LedgerReportsView } from '@/components/LedgerReportsView';
 import { MdbAnalyzerView } from '@/components/MdbAnalyzerView';
 import { CloudSyncAndIniView } from '@/components/CloudSyncAndIniView';
 import { PrintModal } from '@/components/PrintModal';
+import { PdfBundleModal } from '@/components/PdfBundleModal';
 import type {
   Product,
   Customer,
@@ -72,6 +73,7 @@ export default function App() {
   // Print Modal State
   const [isPrintOpen, setIsPrintOpen] = useState<boolean>(false);
   const [printSlip, setPrintSlip] = useState<Slip | null>(null);
+  const [bundleSlips, setBundleSlips] = useState<Slip[] | null>(null);
   // Ref to track isPrintOpen inside event handlers without causing useEffect deps change
   const isPrintOpenRef = useRef(isPrintOpen);
   useEffect(() => { isPrintOpenRef.current = isPrintOpen; }, [isPrintOpen]);
@@ -489,6 +491,7 @@ export default function App() {
                 onSaveSlip={handleSaveSlip}
                 onDeleteSlip={handleDeleteSlip}
                 onOpenPrint={handleOpenPrint}
+                onBundlePdf={setBundleSlips}
                 onNavigateTab={setCurrentTab}
                 onQuickAddCustomer={handleQuickAddCustomer}
                 osTheme={osTheme}
@@ -603,6 +606,7 @@ export default function App() {
       </main>
 
       {/* Print Document Modal */}
+      {bundleSlips && <PdfBundleModal slips={bundleSlips} config={config} customers={customers} onClose={() => setBundleSlips(null)} />}
       <PrintModal
         slip={printSlip}
         config={config}

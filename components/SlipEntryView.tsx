@@ -27,6 +27,7 @@ interface SlipEntryViewProps {
   onSaveSlip: (slipData: Partial<Slip>, deliveryInfo?: any) => Promise<Slip>;
   onDeleteSlip: (id: string) => Promise<void>;
   onOpenPrint: (slip: Slip) => void;
+  onBundlePdf?: (slips: Slip[]) => void;
   onNavigateTab: (tab: string) => void;
   onQuickAddCustomer?: (c: Partial<Customer>) => Promise<Customer | undefined>;
   osTheme: OSTheme;
@@ -39,6 +40,7 @@ export function SlipEntryView({
   onSaveSlip,
   onDeleteSlip,
   onOpenPrint,
+  onBundlePdf,
   onNavigateTab,
   onQuickAddCustomer,
   osTheme
@@ -949,6 +951,16 @@ export function SlipEntryView({
                 발행된 매출/매입 전표 조회, 거래명세표 재인쇄 및 삭제 관리
               </p>
             </div>
+            <div className="flex items-center gap-1.5">
+            {onBundlePdf && (
+              <button
+                onClick={() => onBundlePdf(filteredSlips)}
+                className="px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded text-[11px] font-bold flex items-center gap-1 shadow-sm transition-colors"
+                title="현재 조회된 전표를 원본 양식(거래명세표·견적서·발주서)으로 한 PDF 파일에 묶습니다."
+              >
+                📄 PDF 묶음
+              </button>
+            )}
             <button
               onClick={handleDownloadHistoryExcel}
               className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded text-[11px] font-bold flex items-center gap-1 shadow-sm transition-colors"
@@ -956,6 +968,7 @@ export function SlipEntryView({
             >
               📊 엑셀 저장
             </button>
+            </div>
           </div>
 
           <div className="flex flex-col gap-2 mt-2">

@@ -34,6 +34,7 @@ interface Props {
   seal: string; // 도장 이미지 경로 — 공급자 칸 성명 옆
   prevBalance?: number;
   showPrev?: boolean;
+  copies?: 'both' | 'recipient' | 'supplier'; // both=한 쪽에 위·아래 두 벌(인쇄·보관용) / recipient=받는 쪽 한 벌(팩스·전달용) / supplier=우리 보관용 한 벌
 }
 
 function Txt({ l, t, w, h, children, align, size, bold, nowrap = true }: { l: number; t: number; w: number; h: number; children: React.ReactNode; align?: 'left' | 'right' | 'center'; size?: number; bold?: boolean; nowrap?: boolean }) {
@@ -130,7 +131,7 @@ export function OriginalSlipForm(props: Props) {
     <div className="bg-white text-black" style={{ fontFamily: '"Malgun Gothic","Apple SD Gothic Neo",sans-serif' }}>
       {chunks.map((items, p) => (
         <div key={p} data-pdf-page="" style={{ position: 'relative', width: tw(11906), height: tw(15570), margin: '0 auto 8px', border: '1px solid #cbd5e1', pageBreakAfter: 'always' }}>
-          {[{ y0: 0, tag: '(공급자 보관용)' }, { y0: COPY_OFFSET, tag: '(공급받는자 보관용)' }].map(c => (
+          {(props.copies === 'recipient' ? [{ y0: 0, tag: '(공급받는자 보관용)' }] : props.copies === 'supplier' ? [{ y0: 0, tag: '(공급자 보관용)' }] : [{ y0: 0, tag: '(공급자 보관용)' }, { y0: COPY_OFFSET, tag: '(공급받는자 보관용)' }]).map(c => (
             <Copy key={c.y0} {...props} items={items} pageNo={p + 1} pages={pages} y0={c.y0} tag={c.tag} isLast={p === pages - 1} totals={p === pages - 1 ? whole : sum(items)} />
           ))}
         </div>

@@ -16,6 +16,7 @@ export function PdfBundleModal({ slips, config, customers, onClose }: { slips: S
   const [types, setTypes] = useState<Set<string>>(() => new Set(slips.map(s => normSlipType(s.slipType))));
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<'date' | 'customer'>('date');
+  const [mode, setMode] = useState<'both' | 'fax' | 'faxZip'>('both');
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
 
@@ -36,14 +37,20 @@ export function PdfBundleModal({ slips, config, customers, onClose }: { slips: S
     if (chosen.length === 0) { setMsg('전표를 하나 이상 고르세요.'); return; }
     const dates = chosen.map(s => s.slipDate).sort();
     const range = dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]}~${dates[dates.length - 1]}`;
-    const name = `${safeName(`전표묶음_${range}_${chosen.length}건`)}.pdf`;
+    const name = mode === 'faxZip' ? `${safeName(`팩스원고_거래처별_${range}_${chosen.length}건`)}.zip` : mode === 'fax' ? `${safeName(`팩스원고_${range}_${chosen.length}건`)}.pdf` : `${safeName(`전표묶음_${range}_${chosen.length}건`)}.pdf`;
     try {
-      const handle = await askSaveHandle(name);
+      const handle = await askSaveHandle(name, mode === 'faxZip' ? 'zip' : 'pdf');
       if (handle === null) { setMsg('저장을 취소했습니다.'); return; }
       setBusy('준비 중'); setMsg('');
-      const { exportSlipsPdf } = await import('@/lib/pdfJobs');
-      const r = await exportSlipsPdf({ slips: chosen, config, customers, filename: name, handle, onProgress: p => setBusy(`${p.done}/${p.total}건 · ${p.label}`) });
-      setMsg(`저장 완료 — ${chosen.length}건 · ${r.pages}쪽 · ${(r.bytes / 1024).toFixed(0)}KB (${name})`);
+      const { exportSlipsPdf, exportSlipsZipPerCustomer } = await import('@/lib/pdfJobs');
+      const prog = (p: { done: number; total: number; label: string }) => setBusy(`${p.done}/${p.total}건 · ${p.label}`);
+      if (mode === 'faxZip') {
+        const r = await exportSlipsZipPerCustomer({ slips: chosen, config, customers, filename: name, handle, copies: 'recipient', onProgress: prog });
+        setMsg(`저장 완료 — 거래처 ${r.files}곳 PDF ${r.files}개(${r.pages}쪽) · ZIP ${(r.bytes / 1024).toFixed(0)}KB (${name})`);
+      } else {
+        const r = await exportSlipsPdf({ slips: chosen, config, customers, filename: name, handle, copies: mode === 'fax' ? 'recipient' : 'both', onProgress: prog });
+        setMsg(`저장 완료 — ${chosen.length}건 · ${r.pages}쪽 · ${(r.bytes / 1024).toFixed(0)}KB (${name})`);
+      }
     } catch (e: any) {
       console.error(e); setMsg(`PDF 만드는 중 오류: ${e?.message || e}`);
     } finally { setBusy(''); }
@@ -94,8 +101,14 @@ export function PdfBundleModal({ slips, config, customers, onClose }: { slips: S
             </tbody>
           </table>
         </div>
+        <div className="px-3 py-2 border-t border-slate-200 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          <span className="font-semibold text-slate-700">출력 방식</span>
+          {([['both', '인쇄·보관용 (한 쪽에 위·아래 두 벌)'], ['fax', '팩스 원고 (받는 쪽 한 벌, 한 파일)'], ['faxZip', '팩스 원고 (거래처마다 따로 PDF → ZIP 한 파일)']] as const).map(([k, label]) => (
+            <label key={k} className="flex items-center gap-1 cursor-pointer"><input type="radio" name="bundle-mode" checked={mode === k} onChange={() => setMode(k)} /> {label}</label>
+          ))}
+        </div>
         <div className="p-3 border-t border-slate-200 bg-slate-50 rounded-b-lg flex flex-wrap items-center gap-3 text-xs">
-          <span className="text-slate-600">선택 <b>{chosen.length}</b>건 · 약 <b>{estPages}</b>쪽 (거래명세표는 한 쪽에 위·아래 두 벌, 16줄 넘으면 다음 쪽)</span>
+          <span className="text-slate-600">선택 <b>{chosen.length}</b>건 · 약 <b>{estPages}</b>쪽 (16줄 넘으면 다음 쪽)</span>
           {msg && <span className={`font-semibold ${msg.includes('오류') ? 'text-red-600' : 'text-emerald-700'}`}>{msg}</span>}
           <button onClick={run} disabled={!!busy || chosen.length === 0} className="ml-auto px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold flex items-center gap-1.5">
             <Download className="w-3.5 h-3.5" /> {busy ? busy : 'PDF 만들기'}

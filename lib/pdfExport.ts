@@ -142,10 +142,10 @@ export async function finishPdf(b: PdfBuilder): Promise<Uint8Array> {
 }
 
 /** 파일로 저장: 저장 위치 선택 창(지원 브라우저) → 안 되면 내려받기. 반환 true=저장됨, false=취소. */
-export async function savePdfBytes(bytes: Uint8Array, filename: string, handle?: any): Promise<boolean> {
+export async function savePdfBytes(bytes: Uint8Array, filename: string, handle?: any, mime = 'application/pdf'): Promise<boolean> {
   const cap = (typeof window !== 'undefined' ? (window as any).__pdfCapture : null); // 자동 시험용 연결 고리(없으면 무시)
   if (cap) { cap(bytes, filename); return true; }
-  const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
+  const blob = new Blob([bytes as BlobPart], { type: mime });
   if (handle) { const wr = await handle.createWritable(); await wr.write(blob); await wr.close(); return true; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove();
@@ -154,11 +154,11 @@ export async function savePdfBytes(bytes: Uint8Array, filename: string, handle?:
 }
 
 /** 저장 위치 선택 창은 «사용자 클릭 직후»에만 열 수 있으므로, 긴 작업 전에 먼저 호출해 핸들을 받아 둔다. 취소하면 null. */
-export async function askSaveHandle(suggestedName: string): Promise<any | null | undefined> {
+export async function askSaveHandle(suggestedName: string, kind: 'pdf' | 'zip' = 'pdf'): Promise<any | null | undefined> {
   const w = window as any;
   if (w.__pdfCapture || !w.showSaveFilePicker) return undefined; // 시험 연결 고리가 있거나 미지원이면 저장 창 없이 진행 // 지원 안 함 → 내려받기로 처리
   try {
-    return await w.showSaveFilePicker({ suggestedName, types: [{ description: 'PDF 문서', accept: { 'application/pdf': ['.pdf'] } }] });
+    return await w.showSaveFilePicker({ suggestedName, types: [kind === 'zip' ? { description: 'ZIP 압축 파일', accept: { 'application/zip': ['.zip'] } } : { description: 'PDF 문서', accept: { 'application/pdf': ['.pdf'] } }] });
   } catch (e: any) {
     if (e?.name === 'AbortError') return null;
     throw e;

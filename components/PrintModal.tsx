@@ -3,6 +3,7 @@
 import { displayProductName } from '@/lib/productName';
 import { OriginalSlipForm } from './OriginalSlipForm';
 import { OriginalFormReport } from './OriginalFormReport';
+import { SlipOriginalForm } from './SlipOriginalForm';
 import { RptReportPages, type RptRow } from './RptReportPrint';
 import { normSlipType } from '@/lib/slipType';
 import React, { useState } from 'react';
@@ -27,6 +28,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
   const customer = customerProp ? { ...customerProp, bizNumber: cleanMask(customerProp.bizNumber), tel: cleanMask(customerProp.tel), mobile: cleanMask(customerProp.mobile), fax: cleanMask(customerProp.fax) } : customerProp;
   const [printType, setPrintType] = useState<'statement' | 'receipt' | 'original' | 'request' | 'misc'>('statement');
   const [miscKey, setMiscKey] = useState<string>('rptSlipStatus');
+  const [slipCopies, setSlipCopies] = useState<'both' | 'recipient' | 'supplier'>('both'); // 원본 양식(2단): 두 벌(인쇄) / 받는 쪽 한 벌(팩스) / 보관용 한 벌
   const [dispatchStatus, setDispatchStatus] = useState<'IDLE'|'SENDING'|'SUCCESS'|'FAIL'>('IDLE');
   // Inline toast notification — replaces all alert() calls to prevent
   // browser focus event → React re-render → modal disappearing in 0.1s
@@ -77,12 +79,12 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
       if (channel === 'FAX') {
         showToast('⏳ 팩스 전송을 위해 PDF를 생성 중입니다...', 'info', 5000);
         const element = document.getElementById('pdf-printable-area');
-        const vectorPages = element ? Array.from(element.querySelectorAll<HTMLElement>('[data-pdf-page]')) : [];
-        if (vectorPages.length > 0) {
-          // 원본 양식 탭이면 비트맵 대신 벡터 PDF를 첨부한다(팩스에서도 글자가 또렷하다).
-          const { createPdfBuilder, appendDomPage, finishPdf, bytesToBase64 } = await import('@/lib/pdfExport');
+        if (printType === 'original') {
+          // 원본 양식은 팩스로 «받는 쪽 한 벌»(공급받는자 보관용)만 벡터 PDF로 보낸다 — 우리 보관용은 보내지 않는다(예전 팩스 방식).
+          const { createPdfBuilder, finishPdf, bytesToBase64 } = await import('@/lib/pdfExport');
+          const { appendReactPages } = await import('@/lib/pdfOffscreen');
           const b = await createPdfBuilder();
-          for (const pg of vectorPages) await appendDomPage(b, pg);
+          await appendReactPages(b, <SlipOriginalForm slip={slip} config={config} customer={customer} copies="recipient" />);
           fileBase64 = bytesToBase64(await finishPdf(b));
         } else if (element) {
           const scrollWrapper = element.parentElement;
@@ -140,7 +142,8 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
   const handleVectorPdf = async (pages: HTMLElement[]) => {
     const KINDS: Record<string, string> = { SALES: '매출', PURCHASE: '매입', RETURN_IN: '반입', RETURN_OUT: '반출', ESTIMATE: '견적', ORDER: '발주', DELIVERY: '납품', CONTRACT: '수주' };
     const { askSaveHandle, safeName, createPdfBuilder, appendDomPage, finishPdf, savePdfBytes } = await import('@/lib/pdfExport');
-    const name = `${safeName(`${slip.slipNo}_${slip.customerName}_${KINDS[slip.slipType] || '전표'}`)}.pdf`;
+    const copyTag = printType === 'original' && slip.slipType !== 'ESTIMATE' && slip.slipType !== 'ORDER' ? (slipCopies === 'recipient' ? '_팩스용' : slipCopies === 'supplier' ? '_보관용' : '') : '';
+    const name = `${safeName(`${slip.slipNo}_${slip.customerName}_${KINDS[slip.slipType] || '전표'}${copyTag}`)}.pdf`;
     const handle = await askSaveHandle(name);
     if (handle === null) { showToast('ℹ️ 저장이 취소되었습니다.', 'info'); return; }
     showToast('⏳ PDF를 만드는 중입니다...', 'info', 8000);
@@ -455,6 +458,18 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
                 {(slip.slipType === 'ESTIMATE' || slip.slipType === 'ORDER') && <option value="Estimate02">견적서 가로 (Estimate02·공급자 칸 비어 있음)</option>}
                 {(slip.slipType === 'ESTIMATE' || slip.slipType === 'ORDER') && <option value="DemandEstimate">견적의뢰서 머리글만 (DemandEstimate)</option>}
               </select>
+              {printType === 'original' && slip.slipType !== 'ESTIMATE' && slip.slipType !== 'ORDER' && (
+                <select
+                  value={slipCopies}
+                  onChange={e => setSlipCopies(e.target.value as 'both' | 'recipient' | 'supplier')}
+                  className="px-2 py-1 text-xs font-semibold border-l border-slate-200 bg-amber-50 text-amber-800"
+                  title="원본 양식은 한 쪽에 위(공급자 보관용)·아래(공급받는자 보관용) 두 벌입니다. 팩스로 보낼 때는 받는 쪽 한 벌만 내보냅니다."
+                >
+                  <option value="both">두 벌 (인쇄·보관용)</option>
+                  <option value="recipient">받는 쪽 한 벌 (팩스용)</option>
+                  <option value="supplier">우리 보관용 한 벌</option>
+                </select>
+              )}
               <button
                 onClick={() => setPrintType('receipt')}
                 className={`px-3 py-1 flex items-center gap-1 font-semibold ${
@@ -531,6 +546,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
               seal={isInbound ? '' : '/seal-real.png'}
               prevBalance={slip.prevReceivables}
               showPrev={slip.showPrevBalance !== false}
+              copies={slipCopies}
             />
             )
           ) : slip.slipType === 'ORDER' ? (

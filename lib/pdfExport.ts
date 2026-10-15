@@ -96,9 +96,12 @@ async function walk(w: Walk, el: HTMLElement) {
         const m = onlySpan ? /scaleX\(([\d.]+)\)/.exec(kids[0].style.transform || '') : null;
         let k = m ? parseFloat(m[1]) : 1;
         let tw = font.widthOfTextAtSize(text, size) / PT; // mm
-        if (tw * k > wd * 1.02 && wd > 0) k = Math.max(0.8, (wd * 1.02) / tw); // PDF 글꼴(나눔고딕)이 화면 글꼴보다 넓을 때를 대비한 안전 눌림(0.8배까지, 화면 미리보기와 같은 한도)
+        // 숫자·날짜(원본 굴림체는 영숫자 폭이 글자 크기의 절반이라 칸이 좁다)는 끝 글자가 잘리면 값이 달라지므로 절대 자르지 않고 더 눌러서 넣는다.
+        const numeric = /^[\d,.\-~:()/₩원%+\s]+$/.test(text.trim());
+        const floorK = numeric ? 0.5 : 0.8;
+        if (tw * k > wd * 1.02 && wd > 0) k = Math.max(floorK, (wd * 1.02) / tw); // PDF 글꼴(나눔고딕)이 화면 글꼴보다 넓을 때를 대비한 안전 눌림(글자는 0.8배, 숫자는 0.5배까지)
         let shown = text;
-        if (wd > 0 && tw * k > wd * 1.02) { // 그래도 넘치면 화면(overflow:hidden)처럼 끝을 자른다
+        if (!numeric && wd > 0 && tw * k > wd * 1.02) { // 그래도 넘치면 화면(overflow:hidden)처럼 끝을 자른다
           while (shown.length > 1 && (font.widthOfTextAtSize(shown, size) / PT) * k > wd * 1.02) shown = shown.slice(0, -1);
           tw = font.widthOfTextAtSize(shown, size) / PT;
         }

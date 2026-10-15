@@ -21,7 +21,7 @@ const cleanMask = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').trim(
 
 export function PrintModal({ slip, config, customer: customerProp, customers = [], isOpen, onClose }: PrintModalProps) {
   const customer = customerProp ? { ...customerProp, bizNumber: cleanMask(customerProp.bizNumber), tel: cleanMask(customerProp.tel), mobile: cleanMask(customerProp.mobile), fax: cleanMask(customerProp.fax) } : customerProp;
-  const [printType, setPrintType] = useState<'statement' | 'receipt' | 'original'>('statement');
+  const [printType, setPrintType] = useState<'statement' | 'receipt' | 'original' | 'request'>('statement');
   const [dispatchStatus, setDispatchStatus] = useState<'IDLE'|'SENDING'|'SUCCESS'|'FAIL'>('IDLE');
   // Inline toast notification — replaces all alert() calls to prevent
   // browser focus event → React re-render → modal disappearing in 0.1s
@@ -398,6 +398,19 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                 <FileText className="w-3.5 h-3.5" />
                 <span>원본 양식</span>
               </button>
+              {(slip.slipType === 'ORDER' || slip.slipType === 'ESTIMATE') && (
+                <button
+                  onClick={() => setPrintType('request')}
+                  className={`px-3 py-1 flex items-center gap-1 font-semibold ${
+                    printType === 'request'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>견적의뢰서 (원본)</span>
+                </button>
+              )}
               <button
                 onClick={() => setPrintType('receipt')}
                 className={`px-3 py-1 flex items-center gap-1 font-semibold ${
@@ -432,7 +445,15 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
         {/* Printable Document Body */}
         <div className="p-6 overflow-y-auto flex-1 bg-neutral-100/50 flex justify-center print:bg-white print:p-0 print:overflow-visible print:block print:h-auto print:static">
           <div id="pdf-printable-area" className="flex justify-center w-full">
-          {printType === 'original' ? (
+          {printType === 'request' ? (
+            <OriginalFormReport
+              slip={slip}
+              kind="request"
+              own={{ name: ci.name, ceo: ci.ceo, bizNumber: ci.bizNumber, address: ci.address, tel: ci.tel, fax: ci.fax, bizType: ci.bizType, bizItem: ci.bizItem }}
+              counterpart={slip.customerName}
+              seal="/seal-real.png"
+            />
+          ) : printType === 'original' ? (
             slip.slipType === 'ESTIMATE' || slip.slipType === 'ORDER' ? (
             <OriginalFormReport
               slip={slip}

@@ -14,6 +14,7 @@ interface LedgerReportsViewProps {
   taxInvoices: TaxInvoice[];
   products?: Product[];
   bills?: Bill[];
+  company?: { name: string; ceo: string; bizNumber: string; address: string; bizType: string; bizItem: string };
   customerPrices: Record<string, Record<string, any>>;
   osTheme: OSTheme;
 }
@@ -123,7 +124,7 @@ function OpeningEditor({ customers, opening, onSave }: { customers: { id: string
   );
 }
 
-export function LedgerReportsView({ slips: rawSlips, collections, customers, taxInvoices, products = [], bills = [], customerPrices }: LedgerReportsViewProps) {
+export function LedgerReportsView({ slips: rawSlips, collections, customers, taxInvoices, products = [], bills = [], company, customerPrices }: LedgerReportsViewProps) {
   const [section, setSection] = useState<Section>('daily');
 
   // 이관 과정에서 생긴 대문자 'SALES' 전표 중, 같은 날짜·합계의 소문자 'sales' 전표가 이미 있는 것은 중복 의심으로 집계에서 뺀다.
@@ -650,7 +651,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   const cleanTel = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').replace(/^[-)\s]+/, '').trim() : '');
   type RptSpec = { key: string; title: string; rows: RptRow[]; params: Record<string, string> };
   const rptSpecs = useMemo((): RptSpec[] => {
-    const co = '동산화스너';
+    const co = company?.name || '동산화스너';
     const base = { FromDate: from, ToDate: to, UserCompanyName: co };
     const one = ((): RptSpec | RptSpec[] | null => {
     switch (section) {
@@ -658,7 +659,20 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
       case 'ledger': { const nm = (ledgerOptions.find(o => o.id === ledger.id)?.name) || ''; return { key: 'CustomerBook', title: '거래처별원장', params: { ...base, CustomerCompanyName: nm }, rows: [{ ProductName: '전기 이월', Balance: ledger.opening }, ...ledger.rows.map(r => ({ SlipDate: r.date, Kind: r.kind, ProductName: r.productName, Spec: r.spec, Qty: r.qty ?? '', Price: r.price ?? '', Amount: r.amount, Tax: r.tax, Balance: r.balance, Comments: r.comments }))] }; }
       case 'custsum': return { key: 'CustomerSummary', title: '거래현황집계', params: base, rows: custSum.rows.map(r => ({ CustomerName: r.name, BeforeBalance: r.before, BuyingAmount: r.buy, BuyingVatAmount: r.buyVat, PaymentAmount: r.pay, SalesAmount: r.sale, SalesVatAmount: r.saleVat, ReceiptAmount: r.rcp, Balance: r.bal })) };
       case 'query': return { key: 'SalesQuery', title: '매입매출장', params: base, rows: queryRows.map(r => ({ SlipDate: r.date, Kind: r.kind, ProductName: r.name, Spec: r.spec, Unit: r.unit, Qty: r.qty, Price: r.price, Amount: r.amount })) };
-      case 'taxbook': return { key: 'TaxBook', title: '세금계산서조회', params: base, rows: taxBook.rows.map(t => ({ TaxDate: t.taxDate, TaxKind: t.taxKind === '2' || t.taxKind === 'B' ? '매입' : '매출', CustomerName: t.customerName, Post: t.postName || '', ProductName: t.productSummary, Amount: t.supplyAmount, Tax: t.taxAmount, Total: t.totalAmount })) };
+      case 'taxbook': {
+        const isBuy = (t: { taxKind?: string }) => t.taxKind === '2' || t.taxKind === 'B';
+        const sheet = (buy: boolean): RptSpec => {
+          const list = taxBook.rows.filter(t => isBuy(t) === buy);
+          const byName = new Map<string, { id: string; name: string; n: number; supply: number; tax: number }>();
+          list.forEach(t => { const r = byName.get(t.customerName) || { id: t.customerId || '', name: t.customerName, n: 0, supply: 0, tax: 0 }; r.n++; r.supply += t.supplyAmount; r.tax += t.taxAmount; byName.set(t.customerName, r); });
+          const cmap = new Map(customers.map(c => [c.id, c])), nmap = new Map(customers.map(c => [c.name, c]));
+          const rows = [...byName.values()].sort((a, b) => b.supply - a.supply).map(r => { const c = cmap.get(r.id) || nmap.get(r.name); return { TaxNo: c?.bizNumber && /\d/.test(c.bizNumber) ? c.bizNumber.replace(/_/g, '') : '', CustomerName: r.name, BusinessStatus: c?.bizType || '', BusinessType: c?.bizItem || '', Count: r.n, Blank: 0, Amount: r.supply, Tax: r.tax }; });
+          const tot = rows.reduce((a, r) => ({ supply: a.supply + (r.Amount as number), tax: a.tax + (r.Tax as number) }), { supply: 0, tax: 0 });
+          const title = buy ? '매입처별 세금계산서 합계표' : '매출처별 세금계산서 합계표';
+          return { key: 'TaxList', title, rows, params: { ...base, title, kind: buy ? '매입' : '매출', sDate: `${from.slice(0, 4)}년 ${Number(from.slice(5, 7)) <= 6 ? '제1기' : '제2기'}`, sPeriod: `${from} ~ ${to}`, sIssueDate: new Date().toISOString().slice(0, 10), CustomerCount: String(rows.length), dTotalSheet: String(list.length), dSumKum: won(tot.supply), dSumVat: won(tot.tax), UserAddress: company?.address || '', UserBusinessStatus: company?.bizType || '', UserBusinessType: company?.bizItem || '', UserOwnerName: company?.ceo || '', UserTaxNo: company?.bizNumber || '' } };
+        };
+        return [{ key: 'TaxBook', title: '세금계산서조회', params: base, rows: taxBook.rows.map(t => ({ TaxDate: t.taxDate, TaxKind: isBuy(t) ? '매입' : '매출', CustomerName: t.customerName, Post: t.postName || '', ProductName: t.productSummary, Amount: t.supplyAmount, Tax: t.taxAmount, Total: t.totalAmount })) }, sheet(false), sheet(true)];
+      }
       case 'dailydetail': { const h = dailyDetail.head; return { key: 'DailyDetailBalance', title: '일계 상세', params: { ...base, FromDate: day, ToDate: day, Title: '일계 상세', SalesTotal: won(h.salesTot), Cost: won(h.costTot), Benefit: won(h.profitTot), BenefitRate: `${h.rate.toFixed(1)}`, Receipt: won(h.rcp), BuyingTotal: won(h.buyTot), BuyingTax: won(h.tax), SalesTax: '', Payment: won(h.paid) }, rows: dailyDetail.rows.map(r => ({ SlipDate: r.date, Kind: r.kind, ProductName: `${r.cust} / ${r.productName}`, Spec: r.spec, Qty: r.qty ?? '', Price: r.price ?? '', Amount: r.amount, Cost: r.cost ?? '', Benefit: r.profit ?? '', Rate: r.profit != null && r.amount ? ((r.profit / r.amount) * 100).toFixed(1) : '' })) }; }
       case 'subulsum': return { key: 'SubulSummary', title: '상품수불집계표', params: base, rows: subulSum.rows.map(r => ({ ProductName: r[0], Unit: r[1], Spec: r[2], BeforeStockQty: r[3], BuyingQty: r[4], ReturnSalesQty: r[5], SalesQty: r[6], ReturnBuyingQty: r[7], StockQty: r[8], PurchasePrice: r[9], StockAmount: r[10] })) };
       case 'prodsum': return { key: 'SubulSummaryAmount', title: '상품매입매출집계표', params: { ...base, FromProductsName: '', ToProductsName: '' }, rows: prodSum.rows.map((r, i) => ({ No: i + 1, ProductName: r[0], Spec: r[1], Unit: r[2], BuyingQty: r[3], ReturnSalesQty: r[4], SalesQty: r[5], ReturnBuyingQty: r[6], BuyingAmount: r[7], ReturnSalesAmount: r[8], SalesAmount: r[9], ReturnBuyingAmount: r[10] })) };
@@ -701,7 +715,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
     }
     })();
     return one == null ? [] : Array.isArray(one) ? one : [one];
-  }, [section, rcvMode, qtr, year, quarter, receivable, customers, dailyByCust, from, to, day, cashbook, ledger, ledgerOptions, custSum, queryRows, taxBook, dailyDetail, subulSum, prodSum, subulBook, priceRows, prodList, custList, phonebook, rcpQuery, bills, bbKind]);
+  }, [section, company, rcvMode, qtr, year, quarter, receivable, customers, dailyByCust, from, to, day, cashbook, ledger, ledgerOptions, custSum, queryRows, taxBook, dailyDetail, subulSum, prodSum, subulBook, priceRows, prodList, custList, phonebook, rcpQuery, bills, bbKind]);
 
   const yearOptions = yearEnd.years.length ? yearEnd.years : [year];
 
@@ -732,7 +746,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
       {rptSpecs.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {rptSpecs.map((sp, i) => (
-            <button key={sp.key} onClick={() => setRptOpen(i)} className="flex items-center gap-1 border border-blue-300 text-blue-700 rounded px-2 py-1 hover:bg-blue-50 font-semibold"><BookOpen className="w-3 h-3" /> 원본 양식 인쇄 미리보기{rptSpecs.length > 1 ? ` — ${sp.title}` : ''}</button>
+            <button key={`${sp.key}-${i}`} onClick={() => setRptOpen(i)} className="flex items-center gap-1 border border-blue-300 text-blue-700 rounded px-2 py-1 hover:bg-blue-50 font-semibold"><BookOpen className="w-3 h-3" /> 원본 양식 인쇄 미리보기{rptSpecs.length > 1 ? ` — ${sp.title}` : ''}</button>
           ))}
           <span className="text-slate-500">원본 오케이세일 양식(좌표·글꼴 복원)으로 찍습니다.</span>
         </div>

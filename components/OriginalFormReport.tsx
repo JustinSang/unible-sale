@@ -20,7 +20,7 @@ const ROW_H = 300;
 const FOOT_PAGE_H = 600;
 
 export interface FormParty { name: string; ceo?: string; bizNumber?: string; address?: string; tel?: string; fax?: string; bizType?: string; bizItem?: string }
-interface Props { slip: Slip; kind: 'estimate' | 'order'; own: FormParty; counterpart: string; seal?: string }
+interface Props { slip: Slip; kind: 'estimate' | 'order' | 'request'; own: FormParty; counterpart: string; seal?: string }
 
 function T({ l, t, w, h, children, align, size, bold }: { l: number; t: number; w: number; h: number; children: React.ReactNode; align?: 'left' | 'right' | 'center'; size?: number; bold?: boolean }) {
   return <div style={{ position: 'absolute', left: tw(l), top: tw(t), width: tw(w), height: tw(h), lineHeight: tw(h), fontSize: `${size ?? 9}pt`, fontWeight: bold ? 700 : 400, textAlign: align || 'left', whiteSpace: 'nowrap', overflow: 'hidden' }}>{children}</div>;
@@ -42,9 +42,10 @@ function koreanAmount(n: number): string {
 
 export function OriginalFormReport({ slip, kind, own, counterpart, seal }: Props) {
   const isEst = kind === 'estimate';
+  const hasPriceCols = kind !== 'order'; // 견적의뢰서는 단가·금액 칸이 머리글만 있고 값은 비워 둔다(견적 받는 쪽이 적음)
   const items = slip.items || [];
   const remarks = (slip.memo || '').split(/\n| \/ (?=\[)/).map(s => s.replace(/^\[참조사항\]\s*/, '').trim()).filter(s => s && !/^\[현장:[^\]]*\]$/.test(s)).slice(0, 4);
-  const cols = isEst ? [1311, 3534, 5586, 6441, 7353, 8523, 9870] : [1311, 3534, 5586, 6441, 7353];
+  const cols = hasPriceCols ? [1311, 3534, 5586, 6441, 7353, 8523, 9870] : [1311, 3534, 5586, 6441, 7353];
   // 쪽 나눔: 첫 쪽은 머리 구역 아래, 마지막 쪽은 Remark·합계 구역 자리를 남긴다.
   const lastReserve = (isEst ? 1339 : 1038) + (isEst ? 420 : 0);
   const capFirst = Math.floor((PAGE_H - FOOT_PAGE_H - HEADER_H - COLHEAD_H) / ROW_H);
@@ -70,7 +71,7 @@ export function OriginalFormReport({ slip, kind, own, counterpart, seal }: Props
           <div key={p} style={{ position: 'relative', width: tw(PAGE_W), height: tw(PAGE_H), margin: '0 auto 8px', border: '1px solid #cbd5e1', pageBreakAfter: 'always' }}>
             {isFirst && (
               <>
-                <T l={4389} t={isEst ? 741 : 720} w={3147} h={isEst ? 484 : 450} align="center" size={18} bold>{isEst ? '見  積  書' : '發 注 書'}</T>
+                <T l={4389} t={isEst ? 741 : 720} w={3147} h={isEst ? 484 : 450} align="center" size={18} bold>{isEst ? '見  積  書' : kind === 'request' ? '견적의뢰서' : '發 注 書'}</T>
                 <H x1={4389} x2={7536} y={1197} />
                 <T l={855} t={1482} w={664} h={228}>No. :</T>
                 <T l={1596} t={1482} w={3000} h={228}>{slip.slipNo}</T>
@@ -80,7 +81,7 @@ export function OriginalFormReport({ slip, kind, own, counterpart, seal }: Props
                 <T l={5073} t={2280} w={555} h={221}>貴中</T>
                 <T l={855} t={2793} w={675} h={228}>참조:</T>
                 {isEst && <T l={1596} t={2793} w={3306} h={221}>{slip.siteName || ''}</T>}
-                <T l={1425} t={3135} w={4147} h={255} bold>{isEst ? '下記와 같이 見積 하나이다.' : '下記와 같이 發注 하나이다.'}</T>
+                <T l={1425} t={3135} w={4147} h={255} bold>{isEst ? '下記와 같이 見積 하나이다.' : kind === 'request' ? '下記와 같이 견적의뢰 하나이다.' : '下記와 같이 發注 하나이다.'}</T>
                 <T l={912} t={3591} w={969} h={297}>합계금액:</T>
                 {isEst && <T l={1938} t={3591} w={8731} h={285} size={10.5} bold>일금 {koreanAmount(slip.totalAmount)}원정  (₩{won(slip.totalAmount)})</T>}
                 {/* 왼쪽 칸 선 */}
@@ -107,7 +108,7 @@ export function OriginalFormReport({ slip, kind, own, counterpart, seal }: Props
             <T l={3591} t={y0 + 57} w={1938} h={279} align="center">규 격</T>
             <T l={5643} t={y0 + 57} w={741} h={279} align="center">단위</T>
             <T l={6498} t={y0 + 57} w={798} h={279} align="center">수량</T>
-            {isEst ? (<><T l={7467} t={y0 + 57} w={1008} h={279} align="center">단가</T><T l={8607} t={y0 + 57} w={1197} h={279} align="center">금액</T><T l={9918} t={y0 + 57} w={969} h={279} align="center">비고</T></>)
+            {hasPriceCols ? (<><T l={7467} t={y0 + 57} w={1008} h={279} align="center">단가</T><T l={8607} t={y0 + 57} w={1197} h={279} align="center">금액</T><T l={9918} t={y0 + 57} w={969} h={279} align="center">비고</T></>)
               : <T l={7440} t={y0 + 57} w={3447} h={279} align="center">비고</T>}
             {/* 상세 줄 */}
             {rows.map((it, i) => {
@@ -120,7 +121,7 @@ export function OriginalFormReport({ slip, kind, own, counterpart, seal }: Props
                   <T l={3600} t={t + 66} w={1920} h={202} size={8.5}>{it.spec}</T>
                   <T l={5610} t={t + 66} w={792} h={202} align="center">{it.unit}</T>
                   <T l={6498} t={t + 66} w={828} h={228} align="right">{it.qty ? won(it.qty) : ''}</T>
-                  {isEst ? (<><T l={7458} t={t + 66} w={990} h={228} align="right">{it.unitPrice ? won(it.unitPrice) : ''}</T><T l={8580} t={t + 66} w={1254} h={228} align="right">{it.supplyAmount ? won(it.supplyAmount) : ''}</T><T l={9918} t={t + 66} w={940} h={202} size={8}>{it.memo || ''}</T></>)
+                  {hasPriceCols ? (<><T l={7458} t={t + 66} w={990} h={228} align="right">{isEst && it.unitPrice ? won(it.unitPrice) : ''}</T><T l={8580} t={t + 66} w={1254} h={228} align="right">{isEst && it.supplyAmount ? won(it.supplyAmount) : ''}</T><T l={9918} t={t + 66} w={940} h={202} size={8}>{it.memo || ''}</T></>)
                     : <T l={7440} t={t + 66} w={3400} h={202} size={8.5}>{it.memo || ''}</T>}
                 </React.Fragment>
               );

@@ -581,6 +581,7 @@ export default function App() {
                 taxInvoices={taxInvoices}
                 products={products}
                 bills={bills}
+                company={config?.companyInfo}
                 customerPrices={customerPrices}
                 osTheme={osTheme}
               />

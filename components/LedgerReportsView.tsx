@@ -15,7 +15,7 @@ interface LedgerReportsViewProps {
   osTheme: OSTheme;
 }
 
-type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query';
+type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query' | 'taxbook' | 'prodlist' | 'custlist';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'daily', label: '일계표' },
@@ -29,7 +29,10 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'yearend', label: '연말 이월' },
   { id: 'phonebook', label: '전화번호부' },
   { id: 'custsum', label: '거래처별 집계표' },
-  { id: 'query', label: '거래내역 조회' }
+  { id: 'query', label: '거래내역 조회' },
+  { id: 'taxbook', label: '세금계산서 장부' },
+  { id: 'prodlist', label: '품목·재고 현황' },
+  { id: 'custlist', label: '거래처 목록' }
 ];
 
 type VatRow = { sSupply: number; sTax: number; sCnt: number; pSupply: number; pTax: number; pCnt: number };
@@ -365,6 +368,39 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
     });
     return rows.sort((a, b) => a.date.localeCompare(b.date) || a.no.localeCompare(b.no));
   }, [slips, from, to, qKind, qCust, qSite, qProd]);
+
+  // ───────── 세금계산서 장부(원본 TaxBook·TaxList·SaleTaxList·BuyTaxList: 일자·구분·거래처·현장·공급가·세액·합계·품명) ─────────
+  const [tbKind, setTbKind] = useState<string>('all');
+  const [tbQ, setTbQ] = useState<string>('');
+  const taxBook = useMemo(() => {
+    const q = tbQ.trim();
+    const rows = (taxInvoices || []).filter(t => {
+      if (t.taxDate < from || t.taxDate > to) return false;
+      const k = t.taxKind === '2' || t.taxKind === 'B' ? 'purchase' : 'sales';
+      if (tbKind !== 'all' && tbKind !== k) return false;
+      return !q || `${t.customerName} ${t.postName || ''} ${t.productSummary}`.includes(q);
+    }).sort((a, b) => a.taxDate.localeCompare(b.taxDate) || a.taxNo.localeCompare(b.taxNo));
+    const sum = (k: 'sales' | 'purchase') => rows.filter(t => (t.taxKind === '2' || t.taxKind === 'B' ? 'purchase' : 'sales') === k).reduce((a, t) => ({ supply: a.supply + t.supplyAmount, tax: a.tax + t.taxAmount, total: a.total + t.totalAmount, n: a.n + 1 }), { supply: 0, tax: 0, total: 0, n: 0 });
+    return { rows, sales: sum('sales'), purchase: sum('purchase') };
+  }, [taxInvoices, from, to, tbKind, tbQ]);
+
+  // ───────── 품목·재고 현황(원본 ProductsList·PRODUCTS·Gaego: 품명·규격·단위·수량·단가·금액) ─────────
+  const [plQ, setPlQ] = useState<string>('');
+  const [plStockOnly, setPlStockOnly] = useState(false);
+  const prodList = useMemo(() => {
+    const q = plQ.trim();
+    const rows = (products || []).filter(p => (!q || `${p.name} ${p.spec} ${p.code}`.includes(q)) && (!plStockOnly || (p.currentStock || 0) !== 0))
+      .map(p => ({ code: p.code, name: p.name, spec: p.spec || '', unit: p.unit || '', stock: p.currentStock || 0, cost: p.costPrice || 0, sell: p.sellingPrice || 0, value: (p.currentStock || 0) * (p.costPrice || 0) }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.spec.localeCompare(b.spec, 'ko', { numeric: true }));
+    return { rows, totalValue: rows.reduce((a, r) => a + r.value, 0) };
+  }, [products, plQ, plStockOnly]);
+
+  // ───────── 거래처 목록(원본 Customer·Customer1 인쇄표) ─────────
+  const [clQ, setClQ] = useState<string>('');
+  const custList = useMemo(() => {
+    const q = clQ.trim();
+    return customers.filter(c => !q || `${c.name} ${c.ceo} ${c.bizNumber} ${c.tel}`.includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  }, [customers, clQ]);
 
   const [priceCustomer, setPriceCustomer] = useState<string>('');
   const [priceQuery, setPriceQuery] = useState<string>('');
@@ -929,6 +965,79 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
           </div>
           {queryRows.length > 1000 && <p className="text-[11px] text-slate-500">처음 1,000줄만 표시했습니다 — 전체는 CSV로 받으세요.</p>}
           <p className="text-[11px] text-slate-500">원본 판매조회·전기장·현장별장부 인쇄표(일자·구분·품목·규격·단위·수량·단가·금액·세액)를 한 화면으로 모았습니다. 견적·발주·납품과 품목 줄이 없는 전표(이관된 반품 전표 등)는 제외합니다.</p>
+        </div>
+      )}
+
+      {section === 'taxbook' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">기간</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span>~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <select value={tbKind} onChange={e => setTbKind(e.target.value)} className="border border-slate-300 rounded px-2 py-1"><option value="all">매출+매입</option><option value="sales">매출</option><option value="purchase">매입</option></select>
+            <input value={tbQ} onChange={e => setTbQ(e.target.value)} placeholder="거래처·현장·품명" className="border border-slate-300 rounded px-2 py-1 w-32" />
+            <button onClick={() => downloadCsv(`세금계산서장부_${from}_${to}.csv`, [['일자', '구분', '번호', '거래처', '현장', '품명', '공급가액', '세액', '합계', '발행'], ...taxBook.rows.map(t => [t.taxDate, t.taxKind === '2' || t.taxKind === 'B' ? '매입' : '매출', t.taxNo, t.customerName, t.postName || '', t.productSummary, t.supplyAmount, t.taxAmount, t.totalAmount, t.isIssued ? '발행' : '미발행'])])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead><tr>{['일자', '구분', '번호', '거래처', '현장', '품명', '공급가액', '세액', '합계', '발행'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {taxBook.rows.slice(0, 1000).map(t => (
+                  <tr key={t.id}><td className={td}>{t.taxDate}</td><td className={td}>{t.taxKind === '2' || t.taxKind === 'B' ? '매입' : '매출'}</td><td className={td}>{t.taxNo}</td><td className={td}>{t.customerName}</td><td className={td}>{t.postName || ''}</td><td className={td}>{t.productSummary}</td><td className={num}>{won(t.supplyAmount)}</td><td className={num}>{won(t.taxAmount)}</td><td className={num}>{won(t.totalAmount)}</td><td className={td}>{t.isIssued ? '발행' : '미발행'}</td></tr>
+                ))}
+                {(['sales', 'purchase'] as const).map(k => (
+                  <tr key={k} className="bg-slate-50 font-bold"><td className={td} colSpan={6}>{k === 'sales' ? '매출' : '매입'} 계 ({taxBook[k].n.toLocaleString('ko-KR')}장)</td><td className={num}>{won(taxBook[k].supply)}</td><td className={num}>{won(taxBook[k].tax)}</td><td className={num}>{won(taxBook[k].total)}</td><td className={td}></td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {taxBook.rows.length > 1000 && <p className="text-[11px] text-slate-500">처음 1,000줄만 표시했습니다 — 전체는 CSV로 받으세요.</p>}
+          <p className="text-[11px] text-slate-500">원본 세금계산서 장부·매출/매입 목록 인쇄표를 한 화면으로 모았습니다(구분 1=매출, 2·B=매입).</p>
+        </div>
+      )}
+
+      {section === 'prodlist' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <input value={plQ} onChange={e => setPlQ(e.target.value)} placeholder="품명·규격·코드" className="border border-slate-300 rounded px-2 py-1 w-40" />
+            <label className="flex items-center gap-1"><input type="checkbox" checked={plStockOnly} onChange={e => setPlStockOnly(e.target.checked)} /> 재고 있는 품목만</label>
+            <span className="text-slate-500">{prodList.rows.length.toLocaleString('ko-KR')}품목 · 재고금액(현재고×매입가) {won(prodList.totalValue)}</span>
+            <button onClick={() => downloadCsv('품목재고현황.csv', [['코드', '품명', '규격', '단위', '현재고', '매입가', '판매단가', '재고금액'], ...prodList.rows.map(r => [r.code, r.name, r.spec, r.unit, r.stock, r.cost, r.sell, r.value])])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead><tr>{['코드', '품명', '규격', '단위', '현재고', '매입가', '판매단가', '재고금액'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {prodList.rows.slice(0, 500).map((r, i) => (
+                  <tr key={i}><td className={td}>{r.code}</td><td className={td}>{r.name}</td><td className={td}>{r.spec}</td><td className={td}>{r.unit}</td><td className={num}>{r.stock}</td><td className={num}>{won(r.cost)}</td><td className={num}>{won(r.sell)}</td><td className={num}>{won(r.value)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {prodList.rows.length > 500 && <p className="text-[11px] text-slate-500">500건까지 표시했습니다. 검색으로 좁히거나 CSV로 전체를 받으세요.</p>}
+          <p className="text-[11px] text-slate-500">원본 품목 목록·재고 현황(개고) 인쇄표를 따랐습니다. 원본 이관 데이터에는 현재고가 없어(이월재고 0) 입력·전표가 쌓여야 의미가 있습니다.</p>
+        </div>
+      )}
+
+      {section === 'custlist' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <input value={clQ} onChange={e => setClQ(e.target.value)} placeholder="거래처·대표·사업자번호·전화" className="border border-slate-300 rounded px-2 py-1 w-52" />
+            <span className="text-slate-500">{custList.length.toLocaleString('ko-KR')}곳</span>
+            <button onClick={() => downloadCsv('거래처목록.csv', [['코드', '거래처', '대표', '사업자번호', '업태', '종목', '전화', '팩스', '주소'], ...custList.map(c => [c.code, c.name, c.ceo, c.bizNumber, c.bizType || '', c.bizItem || '', c.tel, c.fax || '', c.address])])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead><tr>{['코드', '거래처', '대표', '사업자번호', '업태', '종목', '전화', '팩스', '주소'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {custList.slice(0, 500).map(c => (
+                  <tr key={c.id}><td className={td}>{c.code}</td><td className={td}>{c.name}</td><td className={td}>{c.ceo}</td><td className={td}>{c.bizNumber}</td><td className={td}>{c.bizType}</td><td className={td}>{c.bizItem}</td><td className={td}>{c.tel}</td><td className={td}>{c.fax}</td><td className={td}>{c.address}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {custList.length > 500 && <p className="text-[11px] text-slate-500">500건까지 표시했습니다. 검색으로 좁히거나 CSV로 전체를 받으세요.</p>}
         </div>
       )}
     </div>

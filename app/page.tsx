@@ -580,6 +580,7 @@ export default function App() {
                 customers={customers}
                 taxInvoices={taxInvoices}
                 products={products}
+                bills={bills}
                 customerPrices={customerPrices}
                 osTheme={osTheme}
               />

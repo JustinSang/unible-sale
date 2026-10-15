@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Download } from 'lucide-react';
 import type { LedgerRow } from '@/lib/ledgerRules';
 import { monthlyNet, quarterSummary, customerLedger, netBetween, monthlyStock, withOpening } from '@/lib/ledgerRules';
-import type { Slip, CollectionPayment, Customer, TaxInvoice, OSTheme, Product } from '@/types';
+import type { Slip, CollectionPayment, Customer, TaxInvoice, OSTheme, Product, Bill } from '@/types';
 
 interface LedgerReportsViewProps {
   slips: Slip[];
@@ -12,11 +12,12 @@ interface LedgerReportsViewProps {
   customers: Customer[];
   taxInvoices: TaxInvoice[];
   products?: Product[];
+  bills?: Bill[];
   customerPrices: Record<string, Record<string, any>>;
   osTheme: OSTheme;
 }
 
-type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query' | 'dailydetail' | 'taxbook' | 'prodlist' | 'custlist';
+type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query' | 'sitebook' | 'rcpsum' | 'billbook' | 'prodsum' | 'slipstatus' | 'dailydetail' | 'taxbook' | 'prodlist' | 'custlist';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'daily', label: '일계표' },
@@ -32,6 +33,11 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'custsum', label: '거래처별 집계표' },
   { id: 'query', label: '거래내역 조회' },
   { id: 'dailydetail', label: '일계 상세' },
+  { id: 'sitebook', label: '현장별 장부' },
+  { id: 'rcpsum', label: '수금·지급 집계' },
+  { id: 'billbook', label: '어음 장부' },
+  { id: 'prodsum', label: '품목별 집계' },
+  { id: 'slipstatus', label: '전표 현황' },
   { id: 'taxbook', label: '세금계산서 장부' },
   { id: 'prodlist', label: '품목·재고 현황' },
   { id: 'custlist', label: '거래처 목록' }
@@ -68,6 +74,24 @@ const th = 'px-2 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 border bor
 const td = 'px-2 py-1 text-xs border border-slate-200';
 const num = `${td} text-right font-mono`;
 
+// 단순 보고서 표(머리글·행·합계 한 줄) — 숫자 칸은 오른쪽 정렬
+function ReportTable({ head, rows, foot, numFrom, limit = 1000 }: { head: string[]; rows: (string | number)[][]; foot?: (string | number)[]; numFrom: number; limit?: number }) {
+  const cell = (v: string | number, i: number) => <td key={i} className={i >= numFrom && typeof v === 'number' ? num : td}>{typeof v === 'number' ? won(v) : v}</td>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead><tr>{head.map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+        <tbody>
+          {rows.slice(0, limit).map((r, i) => <tr key={i}>{r.map(cell)}</tr>)}
+          {rows.length === 0 && <tr><td className={td} colSpan={head.length}>해당 기간에 자료가 없습니다.</td></tr>}
+          {foot && <tr className="bg-slate-50 font-bold">{foot.map(cell)}</tr>}
+        </tbody>
+      </table>
+      {rows.length > limit && <p className="text-[11px] text-slate-500 mt-1">처음 {limit.toLocaleString('ko-KR')}줄만 표시했습니다 — 전체는 CSV로 받으세요.</p>}
+    </div>
+  );
+}
+
 function OpeningEditor({ customers, opening, onSave }: { customers: { id: string; name: string }[]; opening: { asOf: string; byCustomer: Record<string, number> }; onSave: (o: { asOf: string; byCustomer: Record<string, number> }) => void }) {
   const [asOf, setAsOf] = useState(opening.asOf || '');
   const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(opening.byCustomer).map(([k, v]) => [k, String(v)])));
@@ -95,7 +119,7 @@ function OpeningEditor({ customers, opening, onSave }: { customers: { id: string
   );
 }
 
-export function LedgerReportsView({ slips: rawSlips, collections, customers, taxInvoices, products = [], customerPrices }: LedgerReportsViewProps) {
+export function LedgerReportsView({ slips: rawSlips, collections, customers, taxInvoices, products = [], bills = [], customerPrices }: LedgerReportsViewProps) {
   const [section, setSection] = useState<Section>('daily');
 
   // 이관 과정에서 생긴 대문자 'SALES' 전표 중, 같은 날짜·합계의 소문자 'sales' 전표가 이미 있는 것은 중복 의심으로 집계에서 뺀다.
@@ -417,6 +441,71 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
     });
     return rows;
   }, [slips, collections, opening, day]);
+
+  // ───────── 현장별 장부(원본 SiteBook·PostBook) · 수금·지급 집계(ReceiptPaymentSummary) · 어음 장부(ReceiptBill·PaymentBill) · 품목별 집계(SubulSummary·SubulSummaryAmount) · 전표 현황(rptSlipStatus) ─────────
+  // 열은 원본 인쇄표 열을 따르고 집계식은 원본 호출자 추적 실패로 추정이다.
+  const siteBook = useMemo(() => {
+    const m = new Map<string, { cust: string; site: string; n: number; sales: number; purchase: number }>();
+    slips.forEach(sl => {
+      if (sl.slipDate < from || sl.slipDate > to) return;
+      const k = kindOf(sl); if (k !== 'sales' && k !== 'purchase') return;
+      const site = sl.siteName || '(현장 없음)'; const key = `${sl.customerId}|${site}`;
+      const r = m.get(key) || { cust: sl.customerName, site, n: 0, sales: 0, purchase: 0 }; r.n++;
+      if (k === 'sales') r.sales += sl.totalAmount || 0; else r.purchase += sl.totalAmount || 0; m.set(key, r);
+    });
+    const rows = [...m.values()].sort((a, b) => a.cust.localeCompare(b.cust, 'ko') || a.site.localeCompare(b.site, 'ko'));
+    return { rows: rows.map(r => [r.cust, r.site, r.n, r.sales, r.purchase] as (string | number)[]), tot: rows.reduce((t, r) => [t[0] + r.n, t[1] + r.sales, t[2] + r.purchase], [0, 0, 0]) };
+  }, [slips, from, to]);
+
+  const rcpSum = useMemo(() => {
+    const m = new Map<string, { name: string; cash: number; bank: number; bill: number; disc: number; paid: number; pbill: number }>();
+    collections.forEach(c => {
+      if (c.date < from || c.date > to) return;
+      const r = m.get(c.customerId) || { name: c.customerName, cash: 0, bank: 0, bill: 0, disc: 0, paid: 0, pbill: 0 };
+      if (c.type === 'collection') { if (c.method === 'cash') r.cash += c.amount; else if (c.method === 'bank') r.bank += c.amount; else r.bill += c.amount; r.disc += c.discount || 0; }
+      else r.paid += c.amount;
+      m.set(c.customerId, r);
+    });
+    const rows = [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    return { rows: rows.map(r => [r.name, r.cash, r.bank, r.bill, r.cash + r.bank + r.bill, r.disc, r.paid] as (string | number)[]), tot: rows.reduce((t, r) => [t[0] + r.cash, t[1] + r.bank, t[2] + r.bill, t[3] + r.cash + r.bank + r.bill, t[4] + r.disc, t[5] + r.paid], [0, 0, 0, 0, 0, 0]) };
+  }, [collections, from, to]);
+
+  const [bbKind, setBbKind] = useState<string>('all');
+  const billBook = useMemo(() => {
+    const rows = (bills || []).filter(b => (bbKind === 'all' || b.billKind === bbKind) && b.dueDate >= from && b.dueDate <= to)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    return { rows: rows.map(b => [b.dueDate, b.billKind, b.billNo, b.customerName, b.bank, b.status, b.amount] as (string | number)[]), total: rows.reduce((a, b) => a + b.amount, 0) };
+  }, [bills, bbKind, from, to]);
+
+  const prodSum = useMemo(() => {
+    const m = new Map<string, { name: string; spec: string; unit: string; inQty: number; inAmt: number; outQty: number; outAmt: number }>();
+    slips.forEach(sl => {
+      if (sl.slipDate < from || sl.slipDate > to) return;
+      const k = kindOf(sl); if (k === 'other') return;
+      const sg = k === 'sales' ? 'out' : k === 'purchase' ? 'in' : k === 'salesReturn' ? 'inr' : 'outr';
+      (sl.items || []).forEach(it => {
+        const key = `${it.productName}|${it.spec}`; const r = m.get(key) || { name: it.productName, spec: it.spec || '', unit: it.unit || '', inQty: 0, inAmt: 0, outQty: 0, outAmt: 0 };
+        if (sg === 'in') { r.inQty += it.qty; r.inAmt += it.supplyAmount; } else if (sg === 'out') { r.outQty += it.qty; r.outAmt += it.supplyAmount; }
+        else if (sg === 'inr') { r.outQty -= it.qty; r.outAmt -= it.supplyAmount; } else { r.inQty -= it.qty; r.inAmt -= it.supplyAmount; }
+        m.set(key, r);
+      });
+    });
+    const rows = [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.spec.localeCompare(b.spec, 'ko', { numeric: true }));
+    return { rows: rows.map(r => [r.name, r.spec, r.unit, r.inQty, r.inAmt, r.outQty, r.outAmt] as (string | number)[]), tot: rows.reduce((t, r) => [t[0] + r.inAmt, t[1] + r.outAmt], [0, 0]) };
+  }, [slips, from, to]);
+
+  const slipStatus = useMemo(() => {
+    const kinds: [string, string][] = [['sales', '매출'], ['purchase', '매입'], ['salesReturn', '반입'], ['purchaseReturn', '반출']];
+    const m = new Map<string, Record<string, number>>();
+    slips.forEach(sl => {
+      if (sl.slipDate < from || sl.slipDate > to) return;
+      const k = kindOf(sl); const ym = monthOf(sl.slipDate); const r = m.get(ym) || {};
+      const key = k === 'other' ? String(sl.slipType).toLowerCase() : k; r[key] = (r[key] || 0) + 1; r.total = (r.total || 0) + 1; m.set(ym, r);
+    });
+    const rows = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([ym, r]) => [ym, ...kinds.map(([k]) => r[k] || 0), (r.estimate || 0), (r.order || 0), (r.delivery || 0), (r.contract || 0), r.total || 0] as (string | number)[]);
+    const tot = rows.reduce((t, r) => t.map((x, i) => x + (r[i + 1] as number)), new Array(9).fill(0));
+    return { rows, tot };
+  }, [slips, from, to]);
 
   const [priceCustomer, setPriceCustomer] = useState<string>('');
   const [priceQuery, setPriceQuery] = useState<string>('');
@@ -1076,6 +1165,75 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {section === 'sitebook' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">기간</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span>~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <button onClick={() => downloadCsv(`현장별장부_${from}_${to}.csv`, [['거래처', '현장', '전표수', '매출', '매입'], ...siteBook.rows, ['합계', '', ...siteBook.tot]])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <ReportTable head={['거래처', '현장', '전표수', '매출', '매입']} rows={siteBook.rows} foot={['합계', '', ...siteBook.tot]} numFrom={2} />
+          <p className="text-[11px] text-slate-500">거래처·현장별 매출·매입 합계(반품·견적·발주 제외). 현장 줄 내역은 «거래내역 조회»에서 현장 칸으로 좁혀 보세요.</p>
+        </div>
+      )}
+
+      {section === 'rcpsum' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">기간</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span>~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <button onClick={() => downloadCsv(`수금지급집계_${from}_${to}.csv`, [['거래처', '수금 현금', '수금 통장', '수금 어음', '수금 계', '할인', '지급'], ...rcpSum.rows, ['합계', ...rcpSum.tot]])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <ReportTable head={['거래처', '수금 현금', '수금 통장', '수금 어음', '수금 계', '할인', '지급']} rows={rcpSum.rows} foot={['합계', ...rcpSum.tot]} numFrom={1} />
+          <p className="text-[11px] text-slate-500">수금·지급 입력 화면에서 등록한 건만 집계합니다(전표 동시 수금은 거래처 원장·일계표에 있음).</p>
+        </div>
+      )}
+
+      {section === 'billbook' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">기간</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span>~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <select value={bbKind} onChange={e => setBbKind(e.target.value)} className="border border-slate-300 rounded px-2 py-1"><option value="all">받을+지급</option><option value="받을어음">받을어음</option><option value="지급어음">지급어음</option></select>
+            <span className="text-slate-500">기준: 만기일</span>
+            <button onClick={() => downloadCsv(`어음장부_${from}_${to}.csv`, [['만기일', '구분', '어음번호', '거래처', '은행', '상태', '금액'], ...billBook.rows, ['합계', '', '', '', '', '', billBook.total]])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <ReportTable head={['만기일', '구분', '어음번호', '거래처', '은행', '상태', '금액']} rows={billBook.rows} foot={['합계', '', '', '', '', '', billBook.total]} numFrom={6} />
+        </div>
+      )}
+
+      {section === 'prodsum' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">기간</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span>~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <button onClick={() => downloadCsv(`품목별집계_${from}_${to}.csv`, [['품명', '규격', '단위', '매입수량', '매입금액', '매출수량', '매출금액'], ...prodSum.rows, ['합계', '', '', '', prodSum.tot[0], '', prodSum.tot[1]]])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <ReportTable head={['품명', '규격', '단위', '매입수량', '매입금액', '매출수량', '매출금액']} rows={prodSum.rows} foot={['합계', '', '', '', prodSum.tot[0], '', prodSum.tot[1]]} numFrom={3} />
+          <p className="text-[11px] text-slate-500">품목·규격별 기간 매입·매출 수량과 공급가 합계. 반입은 매출, 반출은 매입에서 차감합니다(원본 수불집계표 열 구성).</p>
+        </div>
+      )}
+
+      {section === 'slipstatus' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">기간</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span>~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+          </div>
+          <ReportTable head={['월', '매출', '매입', '반입', '반출', '견적', '발주', '납품', '수주', '합계']} rows={slipStatus.rows} foot={['합계', ...slipStatus.tot]} numFrom={1} />
         </div>
       )}
     </div>

@@ -3,6 +3,7 @@
 import { displayProductName } from '@/lib/productName';
 import { OriginalSlipForm } from './OriginalSlipForm';
 import { OriginalFormReport } from './OriginalFormReport';
+import { RptReportPages, type RptRow } from './RptReportPrint';
 import React, { useState } from 'react';
 import { Printer, X, FileText, Receipt } from 'lucide-react';
 import type { Slip, SystemConfig, Customer } from '@/types';
@@ -21,7 +22,8 @@ const cleanMask = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').trim(
 
 export function PrintModal({ slip, config, customer: customerProp, customers = [], isOpen, onClose }: PrintModalProps) {
   const customer = customerProp ? { ...customerProp, bizNumber: cleanMask(customerProp.bizNumber), tel: cleanMask(customerProp.tel), mobile: cleanMask(customerProp.mobile), fax: cleanMask(customerProp.fax) } : customerProp;
-  const [printType, setPrintType] = useState<'statement' | 'receipt' | 'original' | 'request'>('statement');
+  const [printType, setPrintType] = useState<'statement' | 'receipt' | 'original' | 'request' | 'misc'>('statement');
+  const [miscKey, setMiscKey] = useState<string>('rptSlipStatus');
   const [dispatchStatus, setDispatchStatus] = useState<'IDLE'|'SENDING'|'SUCCESS'|'FAIL'>('IDLE');
   // Inline toast notification — replaces all alert() calls to prevent
   // browser focus event → React re-render → modal disappearing in 0.1s
@@ -411,6 +413,17 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
                   <span>견적의뢰서 (원본)</span>
                 </button>
               )}
+              <select
+                value={printType === 'misc' ? miscKey : ''}
+                onChange={e => { if (e.target.value) { setMiscKey(e.target.value); setPrintType('misc'); } }}
+                className={`px-2 py-1 text-xs font-semibold border-l border-slate-200 ${printType === 'misc' ? 'bg-blue-600 text-white' : 'text-slate-600 bg-white'}`}
+              >
+                <option value="">기타 원본 양식 ▾</option>
+                <option value="rptSlipStatus">전표 선인쇄 용지용 (rptSlipStatus·원본 미완성)</option>
+                {(slip.slipType === 'ESTIMATE' || slip.slipType === 'ORDER') && <option value="Estimate111">견적서 변형 (Estimate111)</option>}
+                {(slip.slipType === 'ESTIMATE' || slip.slipType === 'ORDER') && <option value="Estimate02">견적서 가로 (Estimate02·공급자 칸 비어 있음)</option>}
+                {(slip.slipType === 'ESTIMATE' || slip.slipType === 'ORDER') && <option value="DemandEstimate">견적의뢰서 머리글만 (DemandEstimate)</option>}
+              </select>
               <button
                 onClick={() => setPrintType('receipt')}
                 className={`px-3 py-1 flex items-center gap-1 font-semibold ${
@@ -445,7 +458,23 @@ export function PrintModal({ slip, config, customer: customerProp, customers = [
         {/* Printable Document Body */}
         <div className="p-6 overflow-y-auto flex-1 bg-neutral-100/50 flex justify-center print:bg-white print:p-0 print:overflow-visible print:block print:h-auto print:static">
           <div id="pdf-printable-area" className="flex justify-center w-full">
-          {printType === 'request' ? (
+          {printType === 'misc' ? (
+            (() => {
+              const total = slip.totalAmount || 0;
+              const won = (n: number) => Math.round(n || 0).toLocaleString('ko-KR');
+              const items = slip.items || [];
+              const remarks = (slip.memo || '').split(/\n| \/ (?=\[)/).map(t => t.replace(/^\[참조사항\]\s*/, '').trim()).filter(t => t && !/^\[현장:[^\]]*\]$/.test(t));
+              if (miscKey === 'rptSlipStatus') {
+                const rec: RptRow = {};
+                items.slice(0, 16).forEach((it, i) => { const n = i + 1; rec[`ProductsName${n}`] = it.productName; rec[`Standard${n}`] = it.spec; rec[`Unit${n}`] = it.unit; rec[`Qty${n}`] = it.qty; rec[`Price${n}`] = it.unitPrice; rec[`Amount${n}`] = it.supplyAmount; });
+                const params = { 날짜: slip.slipDate, 사업자번호: customer?.bizNumber || '', 상호: slip.customerName, 성명: customer?.ceo || '', 주소: slip.siteAddress || customer?.address || '', 주소1: '', 업태: customer?.bizType || '', 종목: customer?.bizItem || '', 소제목: slip.siteName || '', 공급가액: won(slip.totalSupplyAmount), 부가세: won(slip.totalTaxAmount), 합계금액: won(total), 레코드번호: slip.slipNo, 페이지번호: '1' };
+                return <>{items.length > 16 && <p className="text-xs text-amber-700 mb-2">품목이 16줄을 넘어 앞 16줄만 찍습니다(원본 선인쇄 용지는 한 장에 16줄).</p>}<RptReportPages layoutKey="rptSlipStatus" rows={[rec]} params={params} single /></>;
+              }
+              const params = { UserTelNo: ci.tel || '', UserBusinessStatus: ci.bizType || '', UserBusinessType: ci.bizItem || '', UserFaxNo: ci.fax || '', UserAddress: ci.address || '', UserOwnerName: ci.ceo || '', UserTaxNo: ci.bizNumber || '', UserCompanyName: ci.name, CustomerName: slip.customerName, SlipDate: slip.slipDate, SiteName: slip.siteName || '', HeaderTotal: `${numberToKorean(total)} (₩${won(total)})`, FooterTotal: `합계 ₩${won(total)}`, Remark1: remarks[0] || '', Remark2: remarks[1] || '', Remark3: remarks[2] || '', Remark4: remarks[3] || '', Comments: '' };
+              const rows: RptRow[] = items.map(it => ({ ProductName: it.productName, Spec: it.spec, Unit: it.unit, Qty: it.qty, Price: it.unitPrice, Amount: it.supplyAmount }));
+              return <RptReportPages layoutKey={miscKey} rows={miscKey === 'DemandEstimate' ? [] : rows} params={params} />;
+            })()
+          ) : printType === 'request' ? (
             <OriginalFormReport
               slip={slip}
               kind="request"

@@ -22,11 +22,12 @@ const won = (n: number) => Math.round(n).toLocaleString('ko-KR');
 export type RptRow = Record<string, string | number | null | undefined>;
 export const RPT_KEYS = Object.keys(LAYOUTS);
 
-function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOnly }: { lay: Layout; pageNo: number; pages: number; rows: RptRow[]; firstRowNo: number; params: Record<string, string>; isLast: boolean; w: number; h: number; rfOnly?: boolean }) {
+function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOnly, single }: { lay: Layout; pageNo: number; pages: number; rows: RptRow[]; firstRowNo: number; params: Record<string, string>; isLast: boolean; w: number; h: number; rfOnly?: boolean; single?: boolean }) {
   const sec = (role: Sec['role']) => lay.sections.filter(s => s.role === role);
   const heads = [...sec('ph'), ...sec('ch')];
   const det = sec('detail')[0];
-  const rf = sec('rf')[0];
+  const rfs = sec('rf');
+  const rf = rfs[0];
   const pf = sec('pf')[0];
   const today = new Date().toISOString().slice(0, 10);
   const sub = (txt: string) => txt.replace(/\{@(\w+)\}/g, (_, k) => params[k] ?? '');
@@ -54,7 +55,7 @@ function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOn
       return null;
     }
     let text = '', right = false;
-    if (o.k === 't') { text = sub(o.x || '').replace(/\{@?[^}]*\}/g, m => m); }
+    if (o.k === 't') { text = sub(o.x || '').replace(/\{@?[^}]*\}/g, m => m); if (inDetail && /^\d+$/.test(text.trim()) && row?.Count != null) text = String(row.Count); /* 합계표 상세의 «1»은 매수 자리 표시 */ }
     else { const v = val(o, row, rowNo, inDetail); text = v.text; right = v.right; }
     if (o.k === 't' && /^\s*$/.test(text)) return null;
     const align = o.k === 't' ? (o.a === 2 ? 'center' : o.a === 3 ? 'right' : 'left') : right ? 'right' : 'left';
@@ -71,7 +72,14 @@ function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOn
   const parts: React.ReactNode[] = [];
   if (rfOnly) {
     // 합계표처럼 «보고서 끝» 구역이 한 쪽을 차지하는 양식: 줄 쪽들 뒤에 그 구역만 따로 한 쪽으로 찍는다.
-    rf?.o.forEach((o, j) => parts.push(draw(o, `rf${j}`, 0)));
+    let ry = 0; rfs.forEach((r, k) => { r.o.forEach((o, j) => parts.push(draw(o, `rf${k}-${j}`, ry))); ry += r.h; });
+    return (
+      <div style={{ position: 'relative', width: tw(w), height: tw(h), margin: '0 auto 8px', background: '#fff', border: '1px solid #cbd5e1', pageBreakAfter: 'always', fontFamily: '"GulimChe","Gulim","Malgun Gothic","Apple SD Gothic Neo",sans-serif', color: '#000' }}>{parts}</div>
+    );
+  }
+  if (single) {
+    // 전표 하나를 구역마다 한 번씩 찍는 양식(rptSlipStatus 등 선인쇄용): 머리 구역(숨은 영문 머리글)은 건너뛰고 상세 구역만 차례로.
+    sec('detail').forEach((d, k) => { d.o.forEach((o, j) => parts.push(draw(o, `s${k}-${j}`, y, rows[0], 1, true))); y += d.h; });
     return (
       <div style={{ position: 'relative', width: tw(w), height: tw(h), margin: '0 auto 8px', background: '#fff', border: '1px solid #cbd5e1', pageBreakAfter: 'always', fontFamily: '"GulimChe","Gulim","Malgun Gothic","Apple SD Gothic Neo",sans-serif', color: '#000' }}>{parts}</div>
     );
@@ -79,17 +87,18 @@ function Page({ lay, pageNo, pages, rows, firstRowNo, params, isLast, w, h, rfOn
   heads.forEach((s, i) => { s.o.forEach((o, j) => parts.push(draw(o, `h${i}-${j}`, y))); y += s.h; });
   const bodyTop = y;
   rows.forEach((r, i) => { det?.o.forEach((o, j) => parts.push(draw(o, `d${i}-${j}`, bodyTop + i * (det?.h || 0), r, firstRowNo + i, true))); });
-  if (isLast && rf && !(rf.h > 1500)) rf.o.forEach((o, j) => parts.push(draw(o, `rf${j}`, bodyTop + rows.length * (det?.h || 0))));
+  if (isLast && rf && !(rf.h > 1500)) { let ry = bodyTop + rows.length * (det?.h || 0); rfs.forEach((r, k) => { r.o.forEach((o, j) => parts.push(draw(o, `rf${k}-${j}`, ry))); ry += r.h; }); }
   if (pf) pf.o.forEach((o, j) => parts.push(draw(o, `pf${j}`, h - BOTTOM_MARGIN - pf.h)));
   return (
     <div style={{ position: 'relative', width: tw(w), height: tw(h), margin: '0 auto 8px', background: '#fff', border: '1px solid #cbd5e1', pageBreakAfter: 'always', fontFamily: '"GulimChe","Gulim","Malgun Gothic","Apple SD Gothic Neo",sans-serif', color: '#000' }}>{parts}</div>
   );
 }
 
-export function RptReportPages({ layoutKey, rows, params }: { layoutKey: string; rows: RptRow[]; params: Record<string, string> }) {
+export function RptReportPages({ layoutKey, rows, params, single }: { layoutKey: string; rows: RptRow[]; params: Record<string, string>; single?: boolean }) {
   const lay = LAYOUTS[layoutKey];
   if (!lay) return <p className="text-sm text-red-600">«{layoutKey}» 양식 좌표가 없습니다.</p>;
   const w = lay.landscape ? 16838 : 11906, h = lay.landscape ? 11906 : 16838;
+  if (single) return <div><Page lay={lay} pageNo={1} pages={1} rows={rows} firstRowNo={1} params={params} isLast w={w} h={h} single /></div>;
   const hs = (r: Sec['role']) => lay.sections.filter(s => s.role === r).reduce((a, s) => a + s.h, 0);
   const rowH = lay.sections.find(s => s.role === 'detail')?.h || 300;
   const bigRf = hs('rf') > 1500;

@@ -4,6 +4,7 @@ import { shiftPrices } from '@/lib/priceHistory';
 import { rotatePurchase } from '@/lib/purchaseHistory';
 import crypto from 'crypto';
 import { supabase } from '@/lib/supabase';
+import { roundBy, normalizeCalc } from '@/lib/calcRules';
 import { openingConfig, ledgerBalance, syncReceivables } from '@/lib/receivables';
 import { audit } from '@/lib/audit';
 
@@ -36,11 +37,15 @@ export async function POST(req: Request) {
       slipNo = `S${dateStr.replace(/-/g, '')}-${String((count || 0) + 1).padStart(4, '0')}`;
     }
 
+    // 금액 반올림 설정(환경설정). 없으면 반올림=기존 동작
+    const { data: cfgRow } = await supabase.from('system_config').select('config').eq('id', 'default').maybeSingle();
+    const calcCfg = normalizeCalc(cfgRow?.config?.calc);
+
     // Process items and calculate totals
     const items = (slipData.items || []).map((item: any, idx: number) => {
       const qty = Number(item.qty) || 0;
       const unitPrice = Number(item.unitPrice) || 0;
-      const supplyAmount = Math.round(qty * unitPrice);
+      const supplyAmount = roundBy(qty * unitPrice, calcCfg.amt);
       // 세액은 화면의 «부가가치세 포함(세액 10% 가산)/별도(세액 없음)» 선택대로 받는다(매뉴얼 캡처 확정; 원본 실전표가 100% 세액 0 = 별도). 값이 없으면 0.
       const taxAmount = Number.isFinite(Number(item.taxAmount)) ? Math.round(Number(item.taxAmount)) : 0;
       const totalAmount = supplyAmount + taxAmount;

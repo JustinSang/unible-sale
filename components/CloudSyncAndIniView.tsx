@@ -210,6 +210,32 @@ export function CloudSyncAndIniView({
           </div>
         </div>
 
+        {/* 금액 반올림 */}
+        <div className={`p-4 rounded-lg border shadow-xs ${
+          osTheme === 'winxp-retro'
+            ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
+            : 'bg-white border-slate-200'
+        }`}>
+          <h3 className="font-bold text-xs text-slate-800 mb-1">금액 계산 — 반올림 방식</h3>
+          <p className="text-slate-500 mb-3">전표 줄마다 공급가액(수량×단가)과 부가세(10%)를 원 단위로 맞출 때의 방식입니다. 바꾸지 않으면 지금까지처럼 반올림입니다. 이미 저장된 전표는 바뀌지 않습니다.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(['amt', 'vat'] as const).map(k => (
+              <div key={k}>
+                <label className="block font-semibold text-slate-700 mb-1">{k === 'amt' ? '공급가액' : '부가세'}</label>
+                <select
+                  value={(formConfig.calc || {})[k] || 'R'}
+                  onChange={e => setFormConfig({ ...formConfig, calc: { amt: 'R', vat: 'R', ...(formConfig.calc || {}), [k]: e.target.value as 'R' | 'F' | 'C' } })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
+                >
+                  <option value="R">반올림 (기본)</option>
+                  <option value="F">내림 (절사)</option>
+                  <option value="C">올림</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Company Info */}
         <div className={`p-4 rounded-lg border shadow-xs ${
           osTheme === 'winxp-retro'

@@ -4,6 +4,7 @@ import { isDispatched } from '@/lib/adminPin';
 import React, { useState, useMemo, useDeferredValue, useRef, useEffect } from 'react';
 import { displayProductName } from '@/lib/productName';
 import { HistoryPicker, MyItemsPicker } from '@/components/SlipAssist';
+import { roundBy, normalizeCalc, type CalcConfig } from '@/lib/calcRules';
 import {
   Copy,
   Plus,
@@ -34,6 +35,7 @@ interface SlipEntryViewProps {
   onNavigateTab: (tab: string) => void;
   onQuickAddCustomer?: (c: Partial<Customer>) => Promise<Customer | undefined>;
   osTheme: OSTheme;
+  calc?: Partial<CalcConfig>; // 환경설정의 금액 반올림(없으면 반올림=기존 동작)
 }
 
 export function SlipEntryView({
@@ -47,7 +49,8 @@ export function SlipEntryView({
   adminMode = false,
   onNavigateTab,
   onQuickAddCustomer,
-  osTheme
+  osTheme,
+  calc
 }: SlipEntryViewProps) {
   // Today date format
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -64,7 +67,9 @@ export function SlipEntryView({
   const [printPrevBalance, setPrintPrevBalance] = useState<boolean>(false);
   const [focusRow, setFocusRow] = useState<number>(0);
   const [refDialog, setRefDialog] = useState<string[] | null>(null);
-  const taxOf = (supply: number) => (vatMode === 'incl' ? Math.round(supply * 0.1) : 0);
+  const calcCfg = normalizeCalc(calc);
+  const amtR = (x: number) => roundBy(x, calcCfg.amt);
+  const taxOf = (supply: number) => (vatMode === 'incl' ? roundBy(supply * 0.1, calcCfg.vat) : 0);
   const [editingSlipId, setEditingSlipId] = useState<string | null>(null);
   const [linkedFromId, setLinkedFromId] = useState<string | null>(null);
   // 원본 전표작업은 빈 격자로 시작한다(품목을 미리 채우지 않는다) — 거래처도 고르기 전에는 비어 있다.
@@ -485,7 +490,7 @@ export function SlipEntryView({
         const prod = products.find(p => p.id === it.productId);
         if (!prod) return it;
         const newUnitPrice = getProductPrice(prod, currentCustomer, newType);
-        const supply = Math.round(it.qty * newUnitPrice);
+        const supply = amtR(it.qty * newUnitPrice);
         const tax = taxOf(supply);
         return {
           ...it,
@@ -517,7 +522,7 @@ export function SlipEntryView({
           const price = getProductPrice(prod);
           
           target.unitPrice = price;
-          target.supplyAmount = Math.round(target.qty * price);
+          target.supplyAmount = amtR(target.qty * price);
           target.taxAmount = taxOf(target.supplyAmount);
           target.totalAmount = target.supplyAmount + target.taxAmount;
         }
@@ -533,7 +538,7 @@ export function SlipEntryView({
           target.discountRate = rate;
           if (prodForRate && (prodForRate.retailPrice || 0) > 0) {
             target.unitPrice = Number(((prodForRate.retailPrice as number) * (100 + rate) / 100).toFixed(priceDecimals));
-            target.supplyAmount = Math.round(target.qty * target.unitPrice);
+            target.supplyAmount = amtR(target.qty * target.unitPrice);
             target.taxAmount = taxOf(target.supplyAmount);
             target.totalAmount = target.supplyAmount + target.taxAmount;
           }
@@ -544,7 +549,7 @@ export function SlipEntryView({
       if (field === 'qty' || field === 'unitPrice') {
         const q = field === 'qty' ? Number(val) || 0 : target.qty;
         const p = field === 'unitPrice' ? Number((Number(val) || 0).toFixed(priceDecimals)) : target.unitPrice;
-        target.supplyAmount = Math.round(q * p);
+        target.supplyAmount = amtR(q * p);
         target.taxAmount = taxOf(target.supplyAmount);
         target.totalAmount = target.supplyAmount + target.taxAmount;
       }
@@ -558,7 +563,7 @@ export function SlipEntryView({
     setVatMode(mode);
     if (persist) { try { localStorage.setItem('oksale.vatMode2', mode); } catch {} }
     setItems(prev => prev.map(it => {
-      const tax = mode === 'incl' ? Math.round(it.supplyAmount * 0.1) : 0;
+      const tax = mode === 'incl' ? roundBy(it.supplyAmount * 0.1, calcCfg.vat) : 0;
       return { ...it, taxAmount: tax, totalAmount: it.supplyAmount + tax };
     }));
   };
@@ -570,7 +575,7 @@ export function SlipEntryView({
     const rows: SlipItem[] = picks.map((prod, i) => {
       const qty = Number(modalQty[prod.id]);
       const price = getProductPrice(prod);
-      const supply = Math.round(qty * price);
+      const supply = amtR(qty * price);
       const tax = taxOf(supply);
       return { id: `row-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`, productId: prod.id, productCode: prod.code, productName: prod.name, spec: prod.spec, unit: prod.unit, qty, unitPrice: price, supplyAmount: supply, taxAmount: tax, totalAmount: supply + tax, memo: '' };
     });
@@ -598,7 +603,7 @@ export function SlipEntryView({
       const pr = products.find(p => p.id === it.productId);
       if (!pr || !(pr.retailPrice || 0) ) { noAgreed.push(it.spec); return { ...it, discountRate: rate }; }
       const unitPrice = Number(((pr.retailPrice as number) * (100 + rate) / 100).toFixed(priceDecimals));
-      const supply = Math.round(it.qty * unitPrice);
+      const supply = amtR(it.qty * unitPrice);
       const tax = taxOf(supply);
       return { ...it, discountRate: rate, unitPrice, supplyAmount: supply, taxAmount: tax, totalAmount: supply + tax };
     }));
@@ -614,7 +619,7 @@ export function SlipEntryView({
   const handleAddAssistItems = (picked: SlipItem[]) => {
     if (picked.length === 0) return;
     const fresh = picked.map(it => {
-      const supply = Math.round((it.qty || 0) * (it.unitPrice || 0));
+      const supply = amtR((it.qty || 0) * (it.unitPrice || 0));
       const tax = taxOf(supply);
       return { ...it, id: 'row-' + Math.random().toString(36).slice(2, 11), supplyAmount: supply, taxAmount: tax, totalAmount: supply + tax };
     });

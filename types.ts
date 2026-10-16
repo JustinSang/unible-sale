@@ -189,6 +189,7 @@ export interface SystemConfig {
   };
   cloudSyncEnabled: boolean;
   syncIntervalSec: number;
+  calc?: { amt: 'R' | 'F' | 'C'; vat: 'R' | 'F' | 'C' }; // 금액 반올림 설정(공급가액·부가세). 없으면 둘 다 반올림(R)=기존 동작
   adminPinHash?: string; // 관리자 모드 PIN의 SHA-256(발송된 전표 수정·삭제 허용)
   openingBalances?: { asOf: string; byCustomer: Record<string, number> }; // 기초 미수(+)·미지급(−) 잔액 — 도입 시점 입력
   lastSyncTime: string;

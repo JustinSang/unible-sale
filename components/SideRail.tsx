@@ -1,12 +1,12 @@
 'use client';
 
 // 오른쪽 아이콘 줄(아이콘바). 이카운트 «apps» 줄의 기능 중 이 앱 안에서 동작하는 것만 넣었다 —
-// 메뉴 검색 · 새 창 · 즐겨찾기 · 최근 작업 타임라인(변경 이력) · 전자노트 · 도움말(단축키) · 사용자 · 줄 설정.
+// 메뉴 검색 · 새 창 · 즐겨찾기 · 최근 작업 타임라인(변경 이력) · 전자노트 · 도움말(단축키) · 사용자 · AI 도우미(로컬 LLM) · 다크모드 · 줄 설정.
 // 서버·외부 서비스가 필요한 쪽지·메신저·문자·웹메일·원격지원·UserPay는 넣지 않았다.
 // 근거: docs/analysis_rea/ecount/ecount_계산규칙_아이콘바_REA분석_2026-10-17.md
 // 지름길: 즐겨찾기·전자노트·줄 설정은 이 브라우저(localStorage)에만 저장한다 — 여러 PC 공유가 필요하면 서버 저장으로 바꿀 것.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, ExternalLink, Star, History, StickyNote, HelpCircle, User, SlidersHorizontal, X } from 'lucide-react';
+import { Search, ExternalLink, Star, History, StickyNote, HelpCircle, User, SlidersHorizontal, X, Bot, Moon, Sun } from 'lucide-react';
 import { BRAND } from '@/lib/brand';
 
 const TABS: { id: string; label: string; hotkey: string }[] = [
@@ -24,8 +24,8 @@ const TABS: { id: string; label: string; hotkey: string }[] = [
   { id: 'ini_sync', label: '환경설정 / 동기화', hotkey: 'F11' },
 ];
 
-type PanelId = 'search' | 'fav' | 'timeline' | 'note' | 'help' | 'user' | 'setup';
-const ICONS: { id: PanelId | 'newwin'; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+type PanelId = 'search' | 'fav' | 'timeline' | 'note' | 'help' | 'user' | 'ai' | 'setup';
+const ICONS: { id: PanelId | 'newwin' | 'dark'; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'search', label: '메뉴 검색', Icon: Search },
   { id: 'newwin', label: '새 창', Icon: ExternalLink },
   { id: 'fav', label: '즐겨찾기', Icon: Star },
@@ -33,6 +33,8 @@ const ICONS: { id: PanelId | 'newwin'; label: string; Icon: React.ComponentType<
   { id: 'note', label: '전자노트', Icon: StickyNote },
   { id: 'help', label: '도움말', Icon: HelpCircle },
   { id: 'user', label: '사용자', Icon: User },
+  { id: 'ai', label: 'AI 도우미', Icon: Bot },
+  { id: 'dark', label: '다크모드', Icon: Moon },
   { id: 'setup', label: '줄 설정', Icon: SlidersHorizontal },
 ];
 
@@ -51,12 +53,32 @@ export function SideRail({ currentTab, onTabChange }: { currentTab: string; onTa
   const [auditErr, setAuditErr] = useState('');
   const [me, setMe] = useState<{ enabled: boolean; loggedIn?: boolean; name?: string; role?: string } | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [dark, setDark] = useState(false);
+  const [aiQ, setAiQ] = useState('');
+  const [aiA, setAiA] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
 
   useEffect(() => {
     try { setFavs(JSON.parse(read('unible.rail.fav') || '[]')); } catch { setFavs([]); }
     try { setHidden(JSON.parse(read('unible.rail.hidden') || '[]')); } catch { setHidden([]); }
     setNote(read('unible.rail.note') || '');
+    const d = read('unible.rail.dark') === '1';
+    setDark(d); document.documentElement.classList.toggle('dark', d);
   }, []);
+  const toggleDark = () => {
+    const d = !dark; setDark(d); write('unible.rail.dark', d ? '1' : '0');
+    document.documentElement.classList.toggle('dark', d);
+  };
+  const askAi = async () => {
+    const q = aiQ.trim(); if (!q || aiBusy) return;
+    setAiBusy(true); setAiA('');
+    try {
+      const r = await fetch('/api/assist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) });
+      const j = await r.json();
+      setAiA(r.ok ? j.answer : (j.error || '답을 받지 못했습니다.'));
+    } catch { setAiA('연결에 실패했습니다.'); }
+    setAiBusy(false);
+  };
 
   useEffect(() => {
     if (open === 'timeline') {
@@ -183,6 +205,16 @@ export function SideRail({ currentTab, onTabChange }: { currentTab: string; onTa
                 {me && me.enabled && !me.loggedIn && <p className="text-slate-600">로그인되어 있지 않습니다.</p>}
               </>
             )}
+            {open === 'ai' && (
+              <>
+                <textarea value={aiQ} onChange={e => setAiQ(e.target.value)} rows={3} placeholder="사용법을 물어보세요. (Enter 전송, Shift+Enter 줄바꿈)"
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askAi(); } }}
+                  className="w-full border rounded p-2 text-sm" />
+                <button type="button" onClick={askAi} disabled={aiBusy || !aiQ.trim()} className="mt-1 px-3 py-1 rounded bg-blue-600 text-white disabled:opacity-40">{aiBusy ? '생각 중…' : '보내기'}</button>
+                {aiA && <div className="mt-2 whitespace-pre-wrap text-sm border-t pt-2">{aiA}</div>}
+                <p className="text-[11px] text-slate-400 mt-2">이 컴퓨터의 로컬 AI가 답합니다. 틀릴 수 있고 전표·거래 데이터는 읽지 않습니다. 금액·세무 판단에는 쓰지 마세요.</p>
+              </>
+            )}
             {open === 'setup' && (
               <>
                 <p className="text-xs text-slate-500 mb-2">줄에 보일 아이콘을 고릅니다.</p>
@@ -199,9 +231,9 @@ export function SideRail({ currentTab, onTabChange }: { currentTab: string; onTa
       <div className="flex flex-col gap-1 rounded-l-lg border border-r-0 border-slate-300 bg-white/95 shadow-lg p-1">
         {visible.map(({ id, label, Icon }) => (
           <button key={id} title={label} aria-label={label}
-            onClick={() => { if (id === 'newwin') window.open(window.location.href, '_blank'); else setOpen(open === id ? null : id as PanelId); }}
+            onClick={() => { if (id === 'newwin') window.open(window.location.href, '_blank'); else if (id === 'dark') toggleDark(); else setOpen(open === id ? null : id as PanelId); }}
             className={`w-9 h-9 flex items-center justify-center rounded hover:bg-blue-50 ${open === id ? 'bg-blue-100 text-blue-700' : 'text-slate-600'}`}>
-            <Icon className="w-5 h-5" />
+            {id === 'dark' && dark ? <Sun className="w-5 h-5" /> : <Icon className="w-5 h-5" />}
           </button>
         ))}
       </div>

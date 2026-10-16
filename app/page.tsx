@@ -512,6 +512,7 @@ export default function App() {
                 onNavigateTab={setCurrentTab}
                 onQuickAddCustomer={handleQuickAddCustomer}
                 osTheme={osTheme}
+                calc={config.calc}
               />
             )}
 

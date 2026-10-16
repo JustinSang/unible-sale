@@ -94,3 +94,7 @@ body {
     box-shadow: 0 2px 12px -2px rgba(0, 0, 0, 0.04), 0 1px 4px -1px rgba(0, 0, 0, 0.02);
   }
 }
+/* 다크모드(오른쪽 아이콘 줄). 화면 전체를 반전하고 사진·영상·인쇄 미리보기는 다시 반전해 원색을 지킨다. 인쇄에는 적용하지 않는다. */
+html.dark { filter: invert(1) hue-rotate(180deg); background: #fff; }
+html.dark img, html.dark video, html.dark canvas, html.dark iframe, html.dark [data-keep-color] { filter: invert(1) hue-rotate(180deg); }
+@media print { html.dark, html.dark img, html.dark video, html.dark canvas, html.dark iframe { filter: none !important; } }

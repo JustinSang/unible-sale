@@ -292,7 +292,7 @@ export function InventoryLedgerView({
                   onChange={e => setTargetProductId(e.target.value)}
                   className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-medium bg-white"
                 >
-                  {products.map(p => (
+                  {products.filter(p => !p.inactive || p.id === targetProductId).map(p => (
                     <option key={p.id} value={p.id}>
                       {p.name} [{p.spec}] (전산재고: {p.currentStock}{p.unit})
                     </option>

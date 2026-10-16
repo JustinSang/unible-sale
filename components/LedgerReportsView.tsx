@@ -423,20 +423,22 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   // ───────── 품목·재고 현황(원본 ProductsList·PRODUCTS·Gaego: 품명·규격·단위·수량·단가·금액) ─────────
   const [plQ, setPlQ] = useState<string>('');
   const [plStockOnly, setPlStockOnly] = useState(false);
+  const [plInactive, setPlInactive] = useState(false); // «사용중단 포함»(이카운트 재고현황 옵션)
   const prodList = useMemo(() => {
     const q = plQ.trim();
-    const rows = (products || []).filter(p => (!q || `${p.name} ${p.spec} ${p.code}`.includes(q)) && (!plStockOnly || (p.currentStock || 0) !== 0))
+    const rows = (products || []).filter(p => (!q || `${p.name} ${p.spec} ${p.code}`.includes(q)) && (!plStockOnly || (p.currentStock || 0) !== 0) && (!p.inactive || plInactive))
       .map(p => ({ code: p.code, name: p.name, spec: p.spec || '', unit: p.unit || '', stock: p.currentStock || 0, cost: p.costPrice || 0, sell: p.sellingPrice || 0, value: (p.currentStock || 0) * (p.costPrice || 0) }))
       .sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.spec.localeCompare(b.spec, 'ko', { numeric: true }));
     return { rows, totalValue: rows.reduce((a, r) => a + r.value, 0) };
-  }, [products, plQ, plStockOnly]);
+  }, [products, plQ, plStockOnly, plInactive]);
 
   // ───────── 거래처 목록(원본 Customer·Customer1 인쇄표) ─────────
   const [clQ, setClQ] = useState<string>('');
+  const [clInactive, setClInactive] = useState(false);
   const custList = useMemo(() => {
     const q = clQ.trim();
-    return customers.filter(c => !q || `${c.name} ${c.ceo} ${c.bizNumber} ${c.tel}`.includes(q)).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-  }, [customers, clQ]);
+    return customers.filter(c => (!c.inactive || clInactive) && (!q || `${c.name} ${c.ceo} ${c.bizNumber} ${c.tel}`.includes(q))).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  }, [customers, clQ, clInactive]);
 
   // ───────── 일계 상세(원본 DailyDetailBalancePrintTable: 일자·구분·거래처·품명·규격·단위·수량·단가·금액·세액·잔액) ─────────
   // 그날 거래가 있는 거래처마다 거래처 원장 규칙으로 줄과 거래 직후 잔액을 구한다(집계식은 원본 호출자 추적 실패로 추정).
@@ -1307,6 +1309,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <input value={plQ} onChange={e => setPlQ(e.target.value)} placeholder="품명·규격·코드" className="border border-slate-300 rounded px-2 py-1 w-40" />
             <label className="flex items-center gap-1"><input type="checkbox" checked={plStockOnly} onChange={e => setPlStockOnly(e.target.checked)} /> 재고 있는 품목만</label>
+            <label className="flex items-center gap-1"><input type="checkbox" checked={plInactive} onChange={e => setPlInactive(e.target.checked)} /> 사용중단 포함</label>
             <span className="text-slate-500">{prodList.rows.length.toLocaleString('ko-KR')}품목 · 재고금액(현재고×매입가) {won(prodList.totalValue)}</span>
             <button onClick={() => downloadCsv('품목재고현황.csv', [['코드', '품명', '규격', '단위', '현재고', '매입가', '판매단가', '재고금액'], ...prodList.rows.map(r => [r.code, r.name, r.spec, r.unit, r.stock, r.cost, r.sell, r.value])])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
           </div>
@@ -1329,6 +1332,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <input value={clQ} onChange={e => setClQ(e.target.value)} placeholder="거래처·대표·사업자번호·전화" className="border border-slate-300 rounded px-2 py-1 w-52" />
+            <label className="flex items-center gap-1"><input type="checkbox" checked={clInactive} onChange={e => setClInactive(e.target.checked)} /> 사용중단 포함</label>
             <span className="text-slate-500">{custList.length.toLocaleString('ko-KR')}곳</span>
             <button onClick={() => downloadCsv('거래처목록.csv', [['코드', '거래처', '대표', '사업자번호', '업태', '종목', '전화', '팩스', '주소'], ...custList.map(c => [c.code, c.name, c.ceo, c.bizNumber, c.bizType || '', c.bizItem || '', c.tel, c.fax || '', c.address])])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
           </div>

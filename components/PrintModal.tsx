@@ -134,12 +134,31 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
     showToast(`✅ PDF ${b.pageCount}쪽을 저장했습니다 (${Math.round(bytes.length / 1024)}KB).`, 'success');
   };
 
+  // 거래명세표(A4)·80mm 영수증: 화면 배치(흐름)를 읽어 벡터 PDF로. 실패하면 아래 비트맵 방식으로 넘어간다.
+  const handleFlowPdf = async (paper: HTMLElement) => {
+    const { askSaveHandle, safeName, createPdfBuilder, appendFlowPages, finishPdf, savePdfBytes } = await import('@/lib/pdfExport');
+    const name = `${safeName(`명세서_${slip.slipNo || '문서'}_${slip.customerName}${printType === 'receipt' ? '_영수증' : ''}`)}.pdf`;
+    const handle = await askSaveHandle(name);
+    if (handle === null) { showToast('ℹ️ 저장이 취소되었습니다.', 'info'); return true; }
+    showToast('⏳ PDF를 만드는 중입니다...', 'info', 8000);
+    const b = await createPdfBuilder();
+    await appendFlowPages(b, paper, printType === 'receipt' ? { pageWidthMm: 80, marginMm: 0 } : { pageWidthMm: 210, pageHeightMm: 297, marginMm: 0 });
+    const bytes = await finishPdf(b);
+    await savePdfBytes(bytes, name, handle);
+    showToast(`✅ PDF ${b.pageCount}쪽을 저장했습니다 (${Math.round(bytes.length / 1024)}KB).`, 'success');
+    return true;
+  };
+
   const handleDownloadPDF = async () => {
     try {
       const element = document.getElementById('pdf-printable-area');
       if (!element) return;
       const vectorPages = Array.from(element.querySelectorAll<HTMLElement>('[data-pdf-page]'));
       if (vectorPages.length > 0) { await handleVectorPdf(vectorPages); return; }
+      const paper = element.firstElementChild as HTMLElement | null;
+      if ((printType === 'statement' || printType === 'receipt') && paper) {
+        try { if (await handleFlowPdf(paper)) return; } catch (e) { console.error('벡터 PDF 실패 — 비트맵 방식으로 대신합니다', e); }
+      }
       
       const suggestedName = `명세서_${slip.slipNo || '문서'}.pdf`;
       let handle = null;

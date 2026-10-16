@@ -137,6 +137,127 @@ export async function appendDomPage(b: PdfBuilder, el: HTMLElement) {
   await walk({ page, H: PH, b }, el);
 }
 
+// ───────── 흐름 배치 화면(거래명세표 A4·80mm 영수증)용 벡터 변환 ─────────
+// 원본 양식은 «절대 위치 상자»라 위의 appendDomPage를 쓰지만, 이 두 화면은 일반 웹 배치(표·flex)라 DOM의 «실제 위치(getBoundingClientRect)와 계산된 스타일»을 읽어
+// 배경·테두리·글자(줄마다)·그림을 PDF로 옮긴다. 화면에 보이는 그대로가 목표이며 비트맵이 아니라서 글자가 선택·검색된다.
+// 지름길: 둥근 모서리·그림자·그라데이션·SVG 아이콘은 그리지 않는다. 쪽 경계에 걸친 글자 줄은 윗부분이 있는 쪽에 통째로 그린다(배경·선은 쪽마다 잘라 그림).
+const colorCache = new Map<string, [number, number, number, number]>();
+let colorCx: CanvasRenderingContext2D | null = null;
+function parseColor(css: string): [number, number, number, number] {
+  const hit = colorCache.get(css); if (hit) return hit;
+  if (!colorCx) { const c = document.createElement('canvas'); c.width = c.height = 1; colorCx = c.getContext('2d', { willReadFrequently: true }); }
+  const cx = colorCx!; cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = css; cx.fillRect(0, 0, 1, 1); // oklch·lab 같은 새 색 표기도 브라우저가 풀어 준다
+  const d = cx.getImageData(0, 0, 1, 1).data;
+  const out: [number, number, number, number] = [d[0] / 255, d[1] / 255, d[2] / 255, d[3] / 255];
+  colorCache.set(css, out); return out;
+}
+async function embedPlainImage(b: PdfBuilder, img: HTMLImageElement): Promise<PDFImage | null> {
+  const key = img.currentSrc || img.src;
+  const cached = b.images.get('flow:' + key); if (cached) return cached;
+  if (!img.naturalWidth) return null;
+  const cv = document.createElement('canvas'); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+  try {
+    cv.getContext('2d')!.drawImage(img, 0, 0);
+    const blob: Blob = await new Promise((res, rej) => cv.toBlob(bl => (bl ? res(bl) : rej(new Error('그림 변환 실패'))), 'image/png'));
+    const png = await b.doc.embedPng(await blob.arrayBuffer());
+    b.images.set('flow:' + key, png); return png;
+  } catch { return null; } // 다른 출처 그림(canvas 오염)은 건너뛴다
+}
+
+type FlowOp =
+  | { k: 'rect'; x: number; y: number; w: number; h: number; c: [number, number, number, number] }
+  | { k: 'text'; x: number; y: number; w: number; fs: number; bold: boolean; s: string; c: [number, number, number, number] }
+  | { k: 'img'; x: number; y: number; w: number; h: number; png: PDFImage };
+
+export interface FlowOpts { pageWidthMm: number; pageHeightMm?: number; marginMm: number }
+
+/** 흐름 배치 화면 한 덩어리(root)를 PDF로. pageHeightMm가 없으면 내용 높이만큼 한 쪽(영수증), 있으면 그 높이로 여러 쪽(A4). */
+export async function appendFlowPages(b: PdfBuilder, root: HTMLElement, o: FlowOpts) {
+  const rr = root.getBoundingClientRect();
+  if (!rr.width || !rr.height) throw new Error('인쇄 영역의 크기를 알 수 없습니다.');
+  const s = (o.pageWidthMm - 2 * o.marginMm) / rr.width; // 화면 px → mm
+  const pxMm = 25.4 / 96;
+  const ops: FlowOp[] = [];
+  const X = (px: number) => (px - rr.left) * s + o.marginMm, Y = (px: number) => (px - rr.top) * s; // Y는 위쪽 여백 제외 내용 기준
+  const charset = new Set<number>([...b.regular.getCharacterSet()]);
+  const pushRect = (x1: number, y1: number, x2: number, y2: number, c: [number, number, number, number]) => { if (c[3] > 0.02 && x2 > x1 && y2 > y1) ops.push({ k: 'rect', x: X(x1), y: Y(y1), w: (x2 - x1) * s, h: (y2 - y1) * s, c }); };
+  const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'svg', 'INPUT', 'SELECT', 'TEXTAREA', 'OPTION', 'BUTTON', 'CANVAS']);
+  const visit = async (el: HTMLElement) => {
+    if (SKIP.has(el.tagName)) return;
+    const st = getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden' || parseFloat(st.opacity) === 0) return;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && el !== root) { // 바깥 종이(root)의 테두리·그림자·배경은 PDF 쪽 자체라 그리지 않는다
+      const bg = parseColor(st.backgroundColor); if (bg[3] > 0) pushRect(r.left, r.top, r.right, r.bottom, bg);
+      const side = (w: string, sty: string, col: string) => (sty !== 'none' && sty !== 'hidden' && parseFloat(w) > 0 ? { w: Math.max(parseFloat(w), 0.5), c: parseColor(col) } : null);
+      const bt = side(st.borderTopWidth, st.borderTopStyle, st.borderTopColor), bb = side(st.borderBottomWidth, st.borderBottomStyle, st.borderBottomColor);
+      const bl = side(st.borderLeftWidth, st.borderLeftStyle, st.borderLeftColor), br = side(st.borderRightWidth, st.borderRightStyle, st.borderRightColor);
+      if (bt) pushRect(r.left, r.top, r.right, r.top + bt.w, bt.c);
+      if (bb) pushRect(r.left, r.bottom - bb.w, r.right, r.bottom, bb.c);
+      if (bl) pushRect(r.left, r.top, r.left + bl.w, r.bottom, bl.c);
+      if (br) pushRect(r.right - br.w, r.top, r.right, r.bottom, br.c);
+      if (el.tagName === 'IMG') {
+        const png = await embedPlainImage(b, el as HTMLImageElement);
+        if (png) ops.push({ k: 'img', x: X(r.left), y: Y(r.top), w: r.width * s, h: r.height * s, png });
+        return;
+      }
+    }
+    for (const node of Array.from(el.childNodes)) {
+      if (node.nodeType === 1) await visit(node as HTMLElement);
+      else if (node.nodeType === 3) {
+        const text = node.textContent || '';
+        if (!text.trim()) continue;
+        const fsPx = parseFloat(st.fontSize) || 12, bold = parseInt(st.fontWeight || '400', 10) >= 600, col = parseColor(st.color);
+        const range = document.createRange();
+        let run: { s: string; l: number; r: number; t: number; h: number } | null = null;
+        const flush = () => { if (run && run.s.trim()) ops.push({ k: 'text', x: X(run.l), y: Y(run.t + run.h * 0.795), w: (run.r - run.l) * s, fs: fsPx * pxMm * (s / pxMm), bold, s: run.s, c: col }); run = null; };
+        for (let i = 0; i < text.length; i++) {
+          range.setStart(node, i); range.setEnd(node, i + 1);
+          const rc = range.getClientRects()[0];
+          if (!rc || (rc.width === 0 && rc.height === 0)) continue;
+          if (run && Math.abs(rc.top - run.t) < fsPx * 0.5 && rc.left >= run.r - 1) { run.s += text[i]; run.r = Math.max(run.r, rc.right); }
+          else { flush(); run = { s: text[i], l: rc.left, r: rc.right, t: rc.top, h: rc.height }; }
+        }
+        flush();
+      }
+    }
+  };
+  await visit(root);
+
+  const contentH = rr.height * s;
+  const PH = o.pageHeightMm ?? contentH + 2 * o.marginMm, ch = PH - 2 * o.marginMm;
+  const pages = Math.max(1, Math.ceil((contentH - 1.5) / ch)); // 1.5mm 이하 넘침은 반올림 오차로 보고 새 쪽을 만들지 않는다
+  for (let p = 0; p < pages; p++) {
+    const page = b.doc.addPage([o.pageWidthMm * PT, PH * PT]); b.pageCount++;
+    const top = p * ch, bot = top + ch, oy = o.marginMm - top; // 내용 y → 쪽 y(mm)
+    const yPt = (mmY: number) => (PH - mmY) * PT;
+    for (const op of ops) {
+      if (op.k === 'text') {
+        if (op.y < top || op.y >= bot + 0.01) continue; // 기준선이 이 쪽 안에 있는 글자만
+        const font = op.bold ? b.bold : b.regular;
+        const shown = Array.from(op.s).filter(ch2 => charset.has(ch2.codePointAt(0)!) || ch2 === ' ').join('');
+        if (!shown.trim()) continue;
+        const size = op.fs * PT; // pt
+        let k = 1;
+        try {
+          const wPdf = font.widthOfTextAtSize(shown, size) / PT; // mm
+          if (wPdf > 0) k = Math.min(1.2, Math.max(0.6, op.w / wPdf)); // 화면 글꼴 폭에 맞춰 가로를 눌러/늘려 줄 끝이 어긋나지 않게
+        } catch { continue; }
+        const Xp = op.x * PT, Yp = yPt(op.y + oy);
+        const color = rgb(op.c[0], op.c[1], op.c[2]);
+        page.pushOperators(pushGraphicsState(), concatTransformationMatrix(k, 0, 0, 1, Xp * (1 - k), 0));
+        page.drawText(shown, { x: Xp, y: Yp, size, font, color });
+        page.pushOperators(popGraphicsState());
+      } else {
+        const y1 = Math.max(op.y, top), y2 = Math.min(op.y + op.h, bot);
+        if (y2 <= y1) continue;
+        if (op.k === 'rect') page.drawRectangle({ x: op.x * PT, y: yPt(y2 + oy), width: op.w * PT, height: (y2 - y1) * PT, color: rgb(op.c[0], op.c[1], op.c[2]), opacity: op.c[3] });
+        else if (op.y >= top && op.y + op.h <= bot + 0.01) page.drawImage(op.png, { x: op.x * PT, y: yPt(op.y + op.h + oy), width: op.w * PT, height: op.h * PT });
+      }
+    }
+  }
+}
+
 export async function finishPdf(b: PdfBuilder): Promise<Uint8Array> {
   return b.doc.save();
 }

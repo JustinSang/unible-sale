@@ -209,12 +209,18 @@ export async function appendFlowPages(b: PdfBuilder, root: HTMLElement, o: FlowO
         if (!text.trim()) continue;
         const fsPx = parseFloat(st.fontSize) || 12, bold = parseInt(st.fontWeight || '400', 10) >= 600, col = parseColor(st.color);
         const range = document.createRange();
+        // 화면에서 잘려 보이는 글자(overflow hidden/clip + 말줄임)는 PDF에서도 같은 상자 밖을 버린다.
+        let clip: DOMRect | null = null;
+        for (let a: HTMLElement | null = el; a && a !== root.parentElement; a = a.parentElement) { const cs = getComputedStyle(a); if (cs.overflowX !== 'visible') { clip = a.getBoundingClientRect(); break; } }
+        const ellipsis = st.textOverflow === 'ellipsis';
         let run: { s: string; l: number; r: number; t: number; h: number } | null = null;
-        const flush = () => { if (run && run.s.trim()) ops.push({ k: 'text', x: X(run.l), y: Y(run.t + run.h * 0.795), w: (run.r - run.l) * s, fs: fsPx * pxMm * (s / pxMm), bold, s: run.s, c: col }); run = null; };
+        let cut = false;
+        const flush = () => { if (run && run.s.trim()) { const more = cut && ellipsis && charset.has(0x2026); ops.push({ k: 'text', x: X(run.l), y: Y(run.t + run.h * 0.795), w: (run.r - run.l) * s * (more ? 1.06 : 1), fs: fsPx * pxMm * (s / pxMm), bold, s: run.s + (more ? '…' : ''), c: col }); } run = null; cut = false; };
         for (let i = 0; i < text.length; i++) {
           range.setStart(node, i); range.setEnd(node, i + 1);
           const rc = range.getClientRects()[0];
           if (!rc || (rc.width === 0 && rc.height === 0)) continue;
+          if (clip && (rc.right > clip.right + 0.5 || rc.left < clip.left - 0.5 || rc.bottom > clip.bottom + 1 || rc.top < clip.top - 1)) { cut = true; continue; }
           if (run && Math.abs(rc.top - run.t) < fsPx * 0.5 && rc.left >= run.r - 1) { run.s += text[i]; run.r = Math.max(run.r, rc.right); }
           else { flush(); run = { s: text[i], l: rc.left, r: rc.right, t: rc.top, h: rc.height }; }
         }
@@ -253,7 +259,7 @@ export async function appendFlowPages(b: PdfBuilder, root: HTMLElement, o: FlowO
         const y1 = Math.max(op.y, top), y2 = Math.min(op.y + op.h, bot);
         if (y2 <= y1) continue;
         if (op.k === 'rect') page.drawRectangle({ x: op.x * PT, y: yPt(y2 + oy), width: op.w * PT, height: (y2 - y1) * PT, color: rgb(op.c[0], op.c[1], op.c[2]), opacity: op.c[3] });
-        else if (op.y >= top && op.y + op.h <= bot + 0.01) page.drawImage(op.png, { x: op.x * PT, y: yPt(op.y + op.h + oy), width: op.w * PT, height: op.h * PT });
+        else page.drawImage(op.png, { x: op.x * PT, y: yPt(op.y + op.h + oy), width: op.w * PT, height: op.h * PT }); // 쪽 경계에 걸친 그림도 사라지지 않게 겹치는 쪽마다 그린다
       }
     }
   }

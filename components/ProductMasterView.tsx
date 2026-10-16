@@ -183,7 +183,8 @@ export function ProductMasterView({
       if (priceCols.length === 0) { setImportMsg('판매단가·매입단가·협정가 열을 찾지 못했습니다(인식하는 열 이름: 판매단가/출고가, 매입단가/매입가, 협정가/소비자가).'); return; }
       const byCode = new Map<string, Product[]>(), byName = new Map<string, Product[]>();
       products.forEach(p => { if (p.code) byCode.set(norm(p.code), [...(byCode.get(norm(p.code)) || []), p]); const k = `${norm(p.name)}|${norm(p.spec)}`; byName.set(k, [...(byName.get(k) || []), p]); });
-      const next = { ...edits } as Record<string, Partial<Product>>; let matched = 0, changed = 0, missing = 0, ambiguous = 0, bad = 0; const missList: string[] = [];
+      const filteredIds = new Set(filteredProducts.map(p => p.id));
+      const next = { ...edits } as Record<string, Partial<Product>>; let hidden = 0, matched = 0, changed = 0, missing = 0, ambiguous = 0, bad = 0; const missList: string[] = [];
       for (const r of rows.slice(hi + 1)) {
         const name = col.name != null ? String(r[col.name] ?? '').trim() : '', code = col.code != null ? String(r[col.code] ?? '').trim() : '';
         if (!name && !code) continue;
@@ -196,12 +197,12 @@ export function ProductMasterView({
           const raw = r[col[k]]; if (raw === '' || raw == null) continue;
           const v = Number(String(raw).replace(/[,\s원]/g, ''));
           if (!Number.isFinite(v) || v < 0) { bad++; continue; }
-          if ((p[k] || 0) !== v) { base[k] = v; did = true; }
+          if ((p[k] || 0) !== v) { base[k] = v; did = true; } else if (k in base) { delete base[k]; if (Object.keys(base).length === 0) delete next[p.id]; } // 엑셀 값이 DB 값과 같으면 이전에 손으로 고친 칸도 되돌린다
         }
-        if (did) { next[p.id] = base as Partial<Product>; changed++; }
+        if (did) { next[p.id] = base as Partial<Product>; changed++; hidden += filteredIds.has(p.id) ? 0 : 1; } else if (Object.keys(base).length) next[p.id] = base as Partial<Product>;
       }
       setEdits(next); setInlineEdit(true);
-      setImportMsg(`엑셀 ${matched + missing + ambiguous}행 중 일치 ${matched} · 단가 변경 ${changed} · 못 찾음 ${missing}${ambiguous ? ` · 모호(같은 품명·규격 중복) ${ambiguous}` : ''}${bad ? ` · 잘못된 금액 ${bad}칸 무시` : ''}. 아래 목록에서 바뀐 칸을 확인하고 «저장(F8)»을 눌러야 반영됩니다(취소하면 아무것도 바뀌지 않음).${missList.length ? ' 못 찾은 예: ' + missList.join(' / ') : ''}`);
+      setImportMsg(`엑셀 ${matched + missing + ambiguous}행 중 일치 ${matched} · 단가 변경 ${changed} · 못 찾음 ${missing}${ambiguous ? ` · 모호(같은 품명·규격 중복) ${ambiguous}` : ''}${bad ? ` · 잘못된 금액 ${bad}칸 무시` : ''}${hidden ? ` · 현재 검색·분류에 안 보이는 품목 ${hidden}건 포함(분류를 «전체»로, 검색을 비우면 보입니다)` : ''}. 아래 목록에서 바뀐 칸을 확인하고 «저장(F8)»을 눌러야 반영됩니다(취소하면 아무것도 바뀌지 않음).${missList.length ? ' 못 찾은 예: ' + missList.join(' / ') : ''}`);
     } catch (e: any) { setImportMsg(`엑셀을 읽지 못했습니다: ${e.message || e}`); }
   };
   const setEdit = (p: Product, field: 'costPrice' | 'retailPrice' | 'sellingPrice', raw: string) => {

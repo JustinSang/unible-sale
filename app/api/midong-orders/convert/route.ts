@@ -12,6 +12,7 @@ export async function POST(req: Request) {
   try {
     const { action, ids, from, to, settle, dryRun } = await req.json();
     if (!['toSales', 'toContract', 'settle', 'unsettle'].includes(action)) return NextResponse.json({ error: 'action 값이 올바르지 않습니다.' }, { status: 400 });
+    if (!(Array.isArray(ids) && ids.length) && !(from && to)) return NextResponse.json({ error: '전표(ids)나 기간(from·to)을 지정해야 합니다.' }, { status: 400 }); // 빈 요청이 mos- 전체를 바꾸지 않게
     const all = (await fetchAll('slips')) as any[];
     const inRange = (s: any) => (!from || s.slipDate >= from) && (!to || s.slipDate <= to);
     let targets = all.filter(s => String(s.id).startsWith('mos-') && (Array.isArray(ids) && ids.length ? ids.includes(s.id) : inRange(s)));
@@ -38,17 +39,26 @@ export async function POST(req: Request) {
     const today = new Date().toISOString().slice(0, 10);
     const label = action === 'toSales' ? `[수주→매출 전환 ${today}${settle === 'unpaid' ? ' 미수' : ' 정산완료'}]` : action === 'toContract' ? `[매출→수주 되돌림 ${today}]` : action === 'settle' ? `[정산완료 처리 ${today}]` : `[미수로 변경 ${today}]`;
     const stripTag = /\s?\[(수주→매출 전환|매출→수주 되돌림|정산완료 처리|미수로 변경)[^\]]*\]/g;
-    for (let i = 0; i < plan.length; i += 25) {
-      const rs = await Promise.all(plan.slice(i, i + 25).map(p => supabase.from('slips').update({
+    // 전표를 바꾼 만큼만 거래처 미수금에 반영한다(중간에 실패해도 «이미 바뀐 전표»의 증감은 반영 → 전표와 미수금이 어긋나지 않게). 거래처별로 따로 반영.
+    const done: typeof plan = []; let firstError = '';
+    for (let i = 0; i < plan.length && !firstError; i += 25) {
+      const chunk = plan.slice(i, i + 25);
+      const rs = await Promise.all(chunk.map(p => supabase.from('slips').update({
         slipType: p.slipType, paidAmount: p.paid, unpaidAmount: p.unpaid, paymentType: p.unpaid > 0 ? 'credit' : 'cash', memo: `${String(p.s.memo || '').replace(stripTag, '')} ${label}`.trim()
       }).eq('id', p.s.id)));
-      const bad = rs.find(r => r.error); if (bad?.error) throw new Error(bad.error.message);
+      rs.forEach((r, k) => { if (r.error) firstError = firstError || r.error.message; else done.push(chunk[k]); });
     }
-    const delta = plan.reduce((a, p) => a + p.delta, 0);
-    if (delta !== 0 && plan.length) {
-      const cid = plan[0].s.customerId;
+    const byCust = new Map<string, number>();
+    done.forEach(p => byCust.set(p.s.customerId, (byCust.get(p.s.customerId) || 0) + p.delta));
+    for (const [cid, d] of byCust) {
+      if (d === 0) continue;
       const { data: c } = await supabase.from('customers').select('receivables').eq('id', cid).maybeSingle();
-      await supabase.from('customers').update({ receivables: (c?.receivables || 0) + delta }).eq('id', cid);
+      const { error: ce } = await supabase.from('customers').update({ receivables: (c?.receivables || 0) + d }).eq('id', cid);
+      if (ce) firstError = firstError || `거래처 미수금 반영 실패(${cid}): ${ce.message}`;
+    }
+    if (firstError) {
+      await audit('convert', 'slip', 'mos-batch', `미동 전표 ${action} 일부 실패: ${done.length}/${plan.length}건 반영 — ${firstError}`, { action, 반영: done.length, 대상: plan.length, 전표: done.slice(0, 500).map(p => p.s.id) });
+      return NextResponse.json({ error: `${done.length}/${plan.length}건만 반영되었습니다(${firstError}). 같은 작업을 다시 실행하면 나머지가 처리됩니다.` }, { status: 500 });
     }
     if (plan.length) await audit('convert', 'slip', 'mos-batch', `미동 전표 ${action} ${plan.length}건 (${Number(sum.금액합계).toLocaleString('ko-KR')}원)`, { action, settle: settle ?? null, 건수: plan.length, 금액합계: sum.금액합계, 미수금_변화: sum.미수금_변화, 전표: plan.slice(0, 500).map(p => p.s.id) });
     return NextResponse.json({ done: true, ...sum });

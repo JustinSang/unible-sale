@@ -135,11 +135,12 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
   };
 
   // 거래명세표(A4)·80mm 영수증: 화면 배치(흐름)를 읽어 벡터 PDF로. 실패하면 아래 비트맵 방식으로 넘어간다.
-  const handleFlowPdf = async (paper: HTMLElement) => {
+  const handleFlowPdf = async (paper: HTMLElement, ctx: { handle?: any }) => {
     const { askSaveHandle, safeName, createPdfBuilder, appendFlowPages, finishPdf, savePdfBytes } = await import('@/lib/pdfExport');
     const name = `${safeName(`명세서_${slip.slipNo || '문서'}_${slip.customerName}${printType === 'receipt' ? '_영수증' : ''}`)}.pdf`;
     const handle = await askSaveHandle(name);
     if (handle === null) { showToast('ℹ️ 저장이 취소되었습니다.', 'info'); return true; }
+    ctx.handle = handle; // 실패해 비트맵 방식으로 넘어가도 저장 창을 다시 띄우지 않는다
     showToast('⏳ PDF를 만드는 중입니다...', 'info', 8000);
     const b = await createPdfBuilder();
     await appendFlowPages(b, paper, printType === 'receipt' ? { pageWidthMm: 80, marginMm: 0 } : { pageWidthMm: 210, pageHeightMm: 297, marginMm: 0 });
@@ -156,15 +157,16 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
       const vectorPages = Array.from(element.querySelectorAll<HTMLElement>('[data-pdf-page]'));
       if (vectorPages.length > 0) { await handleVectorPdf(vectorPages); return; }
       const paper = element.firstElementChild as HTMLElement | null;
+      const flowCtx: { handle?: any } = {};
       if ((printType === 'statement' || printType === 'receipt') && paper) {
-        try { if (await handleFlowPdf(paper)) return; } catch (e) { console.error('벡터 PDF 실패 — 비트맵 방식으로 대신합니다', e); }
+        try { if (await handleFlowPdf(paper, flowCtx)) return; } catch (e) { console.error('벡터 PDF 실패 — 비트맵 방식으로 대신합니다', e); }
       }
       
       const suggestedName = `명세서_${slip.slipNo || '문서'}.pdf`;
-      let handle = null;
+      let handle = flowCtx.handle ?? null;
       
       // Request file handle FIRST to maintain user gesture
-      if ((window as any).showSaveFilePicker) {
+      if (!flowCtx.handle && (window as any).showSaveFilePicker) {
         try {
           handle = await (window as any).showSaveFilePicker({
             suggestedName,

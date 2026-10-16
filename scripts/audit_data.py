@@ -35,8 +35,7 @@ for s in mos:
     elif t == 'CONTRACT' and (s['paidAmount'] or s['unpaidAmount']): F(f"mos- 수주에 입금/미수가 있음: {s['slipNo']}")
 mos_ids = [s['id'] for s in mos]
 if len(mos_ids) != len(set(mos_ids)): F('mos- id 중복')
-# 미동 거래처 미수금과 장부 일치(전표 기준 미수 합계)
-mid = next((c for c in d['customers'] if '미동' in c['name']), None)
+# 지름길: 거래처 receivables와 전표 미수 합의 일치는 점검하지 않는다(db.json의 receivables는 이관 시점 값이라 전표만으로 재현되지 않음).
 # ⑥ 엔티티·깨진 글자
 pat = re.compile(r'&(amp|lt|gt|quot|#\d+);')
 ent = sum(1 for s in slips if pat.search(json.dumps(s, ensure_ascii=False))) + sum(1 for r in d.get('midongOrders', []) if pat.search(json.dumps(r, ensure_ascii=False)))

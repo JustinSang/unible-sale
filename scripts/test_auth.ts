@@ -3,6 +3,7 @@ import { signSession, verifySession, authEnabled } from '../lib/auth';
 import { hashPassword, verifyPassword, loadUsers } from '../lib/authUsers';
 const eq = (n: string, a: unknown, b: unknown) => { const ok = JSON.stringify(a) === JSON.stringify(b); console.log(ok ? 'PASS' : 'FAIL', n, ok ? '' : `${JSON.stringify(a)} != ${JSON.stringify(b)}`); if (!ok) process.exitCode = 1; };
 (async () => {
+  delete process.env.AUTH_SECRET; delete process.env.AUTH_USERS; // 셸에 로그인 환경변수가 있어도 «꺼짐» 시험이 흔들리지 않게
   eq('꺼짐(환경변수 없음)', authEnabled(), false);
   process.env.AUTH_SECRET = 'x'.repeat(40); process.env.AUTH_USERS = JSON.stringify([{ id: 'a', name: '관리', role: 'admin', hash: hashPassword('pw-12345678') }, { id: 'b', name: '직원', role: 'staff', hash: hashPassword('staffpass1') }, { id: 'bad', role: 'root', hash: 'x' }]);
   eq('켜짐', authEnabled(), true);

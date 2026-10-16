@@ -29,5 +29,5 @@ export async function proxy(req: NextRequest) {
   return NextResponse.next({ request: { headers } });
 }
 
-// 정적 파일(글꼴·그림·_next)은 제외
-export const config = { matcher: ['/((?!_next/static|_next/image|fonts|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|ttf|woff2?|webp)$).*)'] };
+// 제외하는 것은 빌드 정적 파일·글꼴·파비콘뿐이다. «이미지 확장자로 끝나는 경로» 전체를 빼면 /api/x.png 같은 API 경로와 회사 도장·화면 캡처(public)가 로그인 없이 열린다(2026-10-16 검수에서 실측).
+export const config = { matcher: ['/((?!_next/static|_next/image|fonts/|favicon\\.ico$).*)'] };

@@ -5,4 +5,5 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY && /^https:\/\//.test(SUPABASE_URL)) console.warn('[supabase] SUPABASE_SERVICE_ROLE_KEY가 없어 공개 anon 키로 접속합니다 — RLS를 켠 DB에서는 «데이터 없음»으로 보입니다(scripts/supabase_rls.sql 머리말 참고).');
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);

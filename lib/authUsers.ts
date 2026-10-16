@@ -12,6 +12,9 @@ export function loadUsers(): AuthUser[] {
   } catch { return []; }
 }
 
+// 없는 아이디 확인용(응답 시간 맞추기). 이 해시에 맞는 비밀번호는 없다.
+export const DUMMY_HASH = 'scrypt$00000000000000000000000000000000$' + '0'.repeat(128);
+
 export function hashPassword(pw: string): string {
   const salt = randomBytes(16).toString('hex');
   return `scrypt$${salt}$${scryptSync(pw, salt, 64).toString('hex')}`;

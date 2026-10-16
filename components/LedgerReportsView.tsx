@@ -503,13 +503,13 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   const [profitBy, setProfitBy] = useState<'cust' | 'item'>('cust');
   // 변경 이력(audit_log): 열 때마다 서버에서 최근 300건을 읽는다.
   const [auditRows, setAuditRows] = useState<{ id: string; at: string; action: string; entity: string; entityId: string; summary: string; detail: unknown }[]>([]);
-  const [auditState, setAuditState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [auditState, setAuditState] = useState<'idle' | 'loading' | 'error' | 'forbidden'>('idle');
   const [auditQ, setAuditQ] = useState('');
   const [auditOpen, setAuditOpen] = useState<string>('');
   useEffect(() => {
     if (section !== 'audit') return;
     setAuditState('loading');
-    fetch('/api/audit?limit=300').then(r => r.json()).then(d => { if (!Array.isArray(d)) throw new Error(d?.error || '읽기 실패'); setAuditRows(d.sort((a, b) => String(b.at).localeCompare(String(a.at)))); setAuditState('idle'); }).catch(() => setAuditState('error'));
+    fetch('/api/audit?limit=300').then(async r => { const d = await r.json().catch(() => null); if (r.status === 403 || r.status === 401) { setAuditState('forbidden'); return; } if (!Array.isArray(d)) throw new Error(d?.error || '읽기 실패'); setAuditRows(d.sort((a, b) => String(b.at).localeCompare(String(a.at)))); setAuditState('idle'); }).catch(() => setAuditState('error'));
   }, [section]);
   const profit = useMemo(() => {
     const byId = new Map(products.map(pr => [pr.id, pr.costPrice || 0]));
@@ -1421,6 +1421,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
             <span className="text-slate-500">최근 300건 · 전표·품목·거래처의 저장/수정/삭제와 미동 전환이 남습니다. 삭제한 것은 «상세»에 전체 내용이 남습니다.</span>
           </div>
           {auditState === 'loading' && <p className="text-xs text-slate-500">불러오는 중…</p>}
+          {auditState === 'forbidden' && <p className="text-xs text-amber-700">변경 이력은 관리자 계정만 볼 수 있습니다.</p>}
           {auditState === 'error' && <p className="text-xs text-red-600">변경 이력을 읽지 못했습니다(DB에 audit_log 표가 없을 수 있음 — scripts/supabase_schema.sql 실행).</p>}
           <div className="overflow-x-auto"><table className="w-full border-collapse text-xs">
             <thead><tr><th className={th}>일시</th><th className={th}>구분</th><th className={th}>대상</th><th className={th}>내용</th><th className={th}>상세</th></tr></thead>

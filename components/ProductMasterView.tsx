@@ -78,7 +78,7 @@ export function ProductMasterView({
   const kpiData = useMemo(() => {
     let shortageCount = 0; let totalMarginSum = 0; let marginCount = 0;
     products.forEach(p => {
-      if (p.currentStock <= p.safeStock) shortageCount++;
+      if (p.safeStock > 0 && p.currentStock <= p.safeStock) shortageCount++; // 적정재고를 정한 품목만(안 정한 0은 «부족»이 아님)
       if (p.sellingPrice > 0) {
         totalMarginSum += ((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100;
         marginCount++;
@@ -407,7 +407,7 @@ export function ProductMasterView({
               ) : (
                 paginatedProducts.map(p => {
                   const margin = p.sellingPrice > 0 ? Math.round(((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100) : 0;
-                  const isShortage = p.currentStock <= p.safeStock;
+                  const isShortage = p.safeStock > 0 && p.currentStock <= p.safeStock;
                   return (
                     <tr key={p.id} role="row" className={`hover:bg-blue-50/40 transition-colors whitespace-nowrap ${p.inactive ? 'opacity-50 ' : ''}${isShortage ? 'border-l-[3px] border-l-rose-400' : ''}`}>
                       <td className="py-2.5 px-3 font-mono font-bold text-slate-700">{p.code}</td>

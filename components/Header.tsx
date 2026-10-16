@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   FileText,
   Package,
@@ -54,6 +54,10 @@ export function Header({
   adminMode,
   onToggleAdmin
 }: HeaderProps) {
+  // 로그인 기능이 켜져 있으면 현재 사용자와 로그아웃 버튼을 보여 준다(꺼져 있으면 아무것도 안 보임).
+  const [me, setMe] = useState<{ enabled: boolean; loggedIn?: boolean; name?: string; role?: string } | null>(null);
+  useEffect(() => { fetch('/api/auth/me').then(r => r.json()).then(setMe).catch(() => setMe(null)); }, []);
+  const logout = async () => { await fetch('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; };
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState<boolean>(false);
   const tabs = [
     { id: 'slips', label: '전표입력 / 거래원장', icon: FileText, hotkey: 'F2' },
@@ -138,6 +142,13 @@ export function Header({
               <Globe className="w-3.5 h-3.5 text-amber-300" />
               <span>인터넷 접속</span>
             </button>
+
+            {me?.enabled && me.loggedIn && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                <span title={me.role === 'admin' ? '관리자 계정' : '직원 계정(삭제·미동 전환·설정 변경 불가)'}>{me.name}{me.role === 'admin' ? ' (관리자)' : ''}</span>
+                <button onClick={logout} className="px-2 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 font-semibold">로그아웃</button>
+              </span>
+            )}
 
             {onToggleAdmin && (
               <button

@@ -1,10 +1,12 @@
 import { supabase } from '@/lib/supabase';
+import { headers } from 'next/headers';
 
 // 변경 이력(감사 기록). 전표·품목·거래처의 생성·수정·삭제와 미동 전환을 `audit_log` 표에 한 줄씩 남긴다.
 // 기록이 실패해도(표가 없거나 네트워크 오류) 본 작업은 막지 않는다 — 그래서 오류는 삼키고 경고만 남긴다.
-// 지름길: 지금은 로그인 사용자가 없어 «누가»(actor)는 비어 있다. 로그인·역할을 도입하면 여기서 채운다.
+// «누가»(actor): 로그인이 켜져 있으면 proxy.ts가 붙인 머리글(x-user-id)에서 자동으로 채운다. 로그인이 꺼져 있으면 비어 있다.
 export async function audit(action: string, entity: string, entityId: string, summary: string, detail?: unknown, actor = '') {
   try {
+    if (!actor) { try { actor = (await headers()).get('x-user-id') || ''; } catch { /* 요청 밖(스크립트)에서 부르면 없음 */ } }
     const { error } = await supabase.from('audit_log').insert({
       id: `au-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       at: new Date().toISOString(), action, entity, entityId, summary, actor, detail: detail ?? null

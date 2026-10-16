@@ -3,7 +3,7 @@
 입력: 수집 JSON(포털 로그인 화면에서 읽기 전용 GET으로 모은 줄들; {rows:[…], summaries:[…]}).
 출력: ①data/db.json 의 midongOrders(백업 후) ②~/Desktop/동산화스너/미동발주내역/미동이엔씨_발주내역_전체_<날짜>.xlsx
 사용: venv/bin/python scripts/import_midong_orders.py <raw.json> [--apply]"""
-import json, sys, os, time, shutil, collections, re
+import json, sys, os, time, shutil, collections, re, html
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -17,7 +17,7 @@ for r in raw['rows']:
     else: in_date = r['inDate']
     close = r['closeDate'] if re.fullmatch(r'\d{4}-\d{2}-\d{2}', r['closeDate'] or '') else ''
     rows.append({
-        'id': f"mo-{r['ym']}-{int(r['no']):04d}", 'closeYm': r['ym'], 'rno': r['rno'], 'site': r['site'], 'name': r['name'], 'spec': r['spec'], 'unit': r['unit'],
+        'id': f"mo-{r['ym']}-{int(r['no']):04d}", 'closeYm': r['ym'], 'rno': r['rno'], 'site': html.unescape(r['site']), 'name': html.unescape(r['name']), 'spec': html.unescape(r['spec']), 'unit': html.unescape(r['unit']),  # 포털 HTML 엔티티(&amp; 등) 해제
         'ordQty': num(r['ordQty']), 'price': num(r['price']), 'ordAmt': int(num(r['ordAmt'])), 'inQty': num(r['inQty']), 'inAmt': int(num(r['inAmt'])),
         'inDate': in_date, 'closeDate': close})
 ids = [r['id'] for r in rows]

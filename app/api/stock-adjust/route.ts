@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { audit } from '@/lib/audit';
 
 export async function POST(req: Request) {
   try {
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
     const { error: logError } = await supabase.from('inventory_logs').insert(log);
     if (logError) console.error('inventory_logs insert failed:', logError.message);
 
+    await audit('update', 'stock', String(productId), `재고 조정: ${(log as any).productName ?? productId} ${(log as any).beforeQty ?? ''}→${afterQty}`, log);
     return NextResponse.json(log, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || '재고 조정 실패' }, { status: 500 });

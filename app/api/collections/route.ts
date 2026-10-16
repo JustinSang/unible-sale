@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { audit } from '@/lib/audit';
 
 export async function GET() {
   const { data, error } = await supabase.from('collections').select('*');
@@ -41,6 +42,7 @@ export async function POST(req: Request) {
     const { error: updateError } = await supabase.from('customers').update({ receivables: currentBalance }).eq('id', data.customerId);
     if (updateError) throw new Error(updateError.message);
 
+    await audit('create', 'collection', String((record as any).id), `${(record as any).type === 'payment' ? '지급' : '수금'} 등록: ${(record as any).customerName} ${Number((record as any).amount || 0).toLocaleString('ko-KR')}원`, { date: (record as any).date, amount: (record as any).amount, discount: (record as any).discount ?? 0, method: (record as any).method ?? null, billNo: (record as any).billNo ?? null });
     return NextResponse.json(record, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || '수금/지급 등록 실패' }, { status: 500 });

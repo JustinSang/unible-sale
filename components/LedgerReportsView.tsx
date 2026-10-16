@@ -1426,7 +1426,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
             <tbody>
               {auditRows.filter(r => !auditQ.trim() || `${r.summary} ${r.entityId}`.includes(auditQ.trim())).slice(0, 300).map(r => (
                 <React.Fragment key={r.id}>
-                  <tr><td className={td}>{new Date(r.at).toLocaleString('ko-KR', { hour12: false })}</td><td className={td}>{({ create: '저장', update: '수정', delete: '삭제', convert: '전환' } as Record<string, string>)[r.action] || r.action}</td><td className={td}>{({ slip: '전표', product: '품목', customer: '거래처' } as Record<string, string>)[r.entity] || r.entity}</td><td className={td}>{r.summary}</td>
+                  <tr><td className={td}>{new Date(r.at).toLocaleString('ko-KR', { hour12: false })}</td><td className={td}>{({ create: '저장', update: '수정', delete: '삭제', convert: '전환' } as Record<string, string>)[r.action] || r.action}</td><td className={td}>{({ slip: '전표', product: '품목', customer: '거래처', collection: '수금·지급', bill: '어음', taxInvoice: '세금계산서', stock: '재고' } as Record<string, string>)[r.entity] || r.entity}</td><td className={td}>{r.summary}</td>
                     <td className={td}>{r.detail ? <button className="text-blue-600 underline" onClick={() => setAuditOpen(auditOpen === r.id ? '' : r.id)}>{auditOpen === r.id ? '접기' : '보기'}</button> : ''}</td></tr>
                   {auditOpen === r.id && <tr><td className={td} colSpan={5}><pre className="whitespace-pre-wrap break-all text-[11px] max-h-60 overflow-auto">{JSON.stringify(r.detail, null, 1)}</pre></td></tr>}
                 </React.Fragment>

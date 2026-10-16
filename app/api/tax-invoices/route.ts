@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { audit } from '@/lib/audit';
 import type { TaxInvoice } from '@/types';
 
 export async function GET() {
@@ -43,6 +44,7 @@ export async function POST(req: Request) {
     const { error } = await supabase.from('tax_invoices').insert(newTax);
     if (error) throw new Error(error.message);
 
+    await audit('create', 'taxInvoice', String((newTax as any).id), `세금계산서 발행: ${(newTax as any).customerName ?? ''} ${Number((newTax as any).totalAmount ?? (newTax as any).supplyAmount ?? 0).toLocaleString('ko-KR')}원`, newTax);
     return NextResponse.json(newTax, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || '세금계산서 발행 실패' }, { status: 500 });

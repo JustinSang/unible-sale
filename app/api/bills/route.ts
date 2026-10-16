@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { audit } from '@/lib/audit';
 import type { Bill } from '@/types';
 
 export async function GET() {
@@ -29,6 +30,7 @@ export async function POST(req: Request) {
     const { error } = await supabase.from('bills').insert(newBill);
     if (error) throw new Error(error.message);
 
+    await audit('create', 'bill', String((newBill as any).id), `어음 등록: ${(newBill as any).billNo ?? ''} ${(newBill as any).customerName ?? ''} ${Number((newBill as any).amount || 0).toLocaleString('ko-KR')}원`, newBill);
     return NextResponse.json(newBill, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || '어음 등록 실패' }, { status: 500 });

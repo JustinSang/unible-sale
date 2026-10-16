@@ -167,15 +167,28 @@ export function ProductMasterView({
   // 품목 찾기: 품목코드가 있으면 코드로, 없으면 품명+규격(공백·대소문자 무시). 같은 품명+규격이 여럿이면 «모호»로 건너뛴다. 새 품목 등록은 하지 않는다(1차).
   // 지름길: 열 이름은 아래 별칭 표로만 인식한다 — 다른 이름이면 «인식 못 한 열»로 알려 준다.
   const [importMsg, setImportMsg] = useState<string>('');
+  // 엑셀에는 있는데 품목에 없는 행 — «새 품목 N건 등록» 버튼을 눌러야만 등록된다(자동 등록 안 함).
+  const [importNew, setImportNew] = useState<Partial<Product>[]>([]);
   const importRef = useRef<HTMLInputElement>(null);
+  const registerImported = async () => {
+    if (importNew.length === 0) return;
+    const sample = importNew.slice(0, 5).map(p => `${p.name}${p.spec ? ' ' + p.spec : ''}`).join(', ');
+    if (!window.confirm(`엑셀에만 있는 품목 ${importNew.length}건을 새 품목으로 등록합니다.\n(예: ${sample}${importNew.length > 5 ? ' …' : ''})\n재고는 0, 분류는 비워 둡니다. 진행할까요?`)) return;
+    let n = Math.max(0, ...products.map(p => Number(/^PRD-(\d+)$/.exec(p.code || '')?.[1]) || 0)); let ok = 0;
+    try {
+      for (const p of importNew) { n += 1; await onAddProduct({ ...p, code: p.code || `PRD-${String(n).padStart(4, '0')}`, currentStock: 0, safeStock: 0, category: '' }); ok++; }
+      setImportMsg(`새 품목 ${ok}건을 등록했습니다.`); setImportNew([]);
+    } catch (e: any) { setImportMsg(`새 품목 등록 중 오류: ${e.message || e} — ${ok}건까지 등록됨. 남은 것은 같은 엑셀을 다시 가져오면 다시 나타납니다.`); setImportNew([]); }
+  };
   const importExcel = async (file: File) => {
     try {
       const XLSX = await import('xlsx');
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true }) // raw: CSV의 «1/2» 같은 규격이 날짜로 바뀌지 않게;
       const rows: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
       const norm = (s: unknown) => String(s ?? '').replace(/\s+/g, '').toLowerCase();
-      const ALIAS: Record<string, string[]> = { code: ['품목코드', '상품코드', '코드'], name: ['품명', '품목명', '상품명'], spec: ['규격', '사양'], sellingPrice: ['판매단가', '출고가', '출고단가', '단가'], costPrice: ['매입단가', '매입가', '매입'], retailPrice: ['협정가', '소비자가'] };
+      const ALIAS: Record<string, string[]> = { unit: ['단위'], code: ['품목코드', '상품코드', '코드'], name: ['품명', '품목명', '상품명'], spec: ['규격', '사양'], sellingPrice: ['판매단가', '출고가', '출고단가', '단가'], costPrice: ['매입단가', '매입가', '매입'], retailPrice: ['협정가', '소비자가'] };
       const hi = rows.slice(0, 10).findIndex(r => r.some(c => ALIAS.name.includes(norm(c))) || r.some(c => ALIAS.code.includes(norm(c))));
+      setImportNew([]);
       if (hi < 0) { setImportMsg('헤더 줄을 찾지 못했습니다. 첫 10줄 안에 «품명»(또는 «품목코드») 열이 있어야 합니다.'); return; }
       const head = rows[hi].map(norm); const col: Record<string, number> = {};
       Object.entries(ALIAS).forEach(([k, names]) => { const i = head.findIndex(h => names.includes(h)); if (i >= 0) col[k] = i; });
@@ -183,6 +196,7 @@ export function ProductMasterView({
       if (priceCols.length === 0) { setImportMsg('판매단가·매입단가·협정가 열을 찾지 못했습니다(인식하는 열 이름: 판매단가/출고가, 매입단가/매입가, 협정가/소비자가).'); return; }
       const byCode = new Map<string, Product[]>(), byName = new Map<string, Product[]>();
       products.forEach(p => { if (p.code) byCode.set(norm(p.code), [...(byCode.get(norm(p.code)) || []), p]); const k = `${norm(p.name)}|${norm(p.spec)}`; byName.set(k, [...(byName.get(k) || []), p]); });
+      const fresh = new Map<string, Partial<Product>>();
       const filteredIds = new Set(filteredProducts.map(p => p.id));
       const next = { ...edits } as Record<string, Partial<Product>>; let hidden = 0, matched = 0, changed = 0, missing = 0, ambiguous = 0, bad = 0; const missList: string[] = [];
       for (const r of rows.slice(hi + 1)) {
@@ -190,7 +204,7 @@ export function ProductMasterView({
         if (!name && !code) continue;
         let hit = code ? byCode.get(norm(code)) : undefined;
         if (!hit && name) hit = byName.get(`${norm(name)}|${norm(col.spec != null ? r[col.spec] : '')}`);
-        if (!hit || hit.length === 0) { missing++; if (missList.length < 8) missList.push(`${name || code}${col.spec != null && r[col.spec] ? ' ' + r[col.spec] : ''}`); continue; }
+        if (!hit || hit.length === 0) { missing++; const nm = name, sp = col.spec != null ? String(r[col.spec] ?? '').trim() : ''; if (nm && !fresh.has(`${norm(nm)}|${norm(sp)}`)) { const num = (k: 'sellingPrice' | 'costPrice' | 'retailPrice') => (col[k] != null ? Number(String(r[col[k]] ?? '').replace(/[,\s원]/g, '')) || 0 : 0); fresh.set(`${norm(nm)}|${norm(sp)}`, { name: nm, spec: sp, unit: col.unit != null ? String(r[col.unit] ?? '').trim() || 'EA' : 'EA', code: code || undefined, sellingPrice: num('sellingPrice'), costPrice: num('costPrice'), retailPrice: num('retailPrice') }); } if (missList.length < 8) missList.push(`${name || code}${col.spec != null && r[col.spec] ? ' ' + r[col.spec] : ''}`); continue; }
         if (hit.length > 1) { ambiguous++; continue; }
         matched++; const p = hit[0]; const base = { ...(next[p.id] || {}) } as Record<string, unknown>; let did = false;
         for (const k of priceCols) {
@@ -201,8 +215,8 @@ export function ProductMasterView({
         }
         if (did) { next[p.id] = base as Partial<Product>; changed++; hidden += filteredIds.has(p.id) ? 0 : 1; } else if (Object.keys(base).length) next[p.id] = base as Partial<Product>;
       }
-      setEdits(next); setInlineEdit(true);
-      setImportMsg(`엑셀 ${matched + missing + ambiguous}행 중 일치 ${matched} · 단가 변경 ${changed} · 못 찾음 ${missing}${ambiguous ? ` · 모호(같은 품명·규격 중복) ${ambiguous}` : ''}${bad ? ` · 잘못된 금액 ${bad}칸 무시` : ''}${hidden ? ` · 현재 검색·분류에 안 보이는 품목 ${hidden}건 포함(분류를 «전체»로, 검색을 비우면 보입니다)` : ''}. 아래 목록에서 바뀐 칸을 확인하고 «저장(F8)»을 눌러야 반영됩니다(취소하면 아무것도 바뀌지 않음).${missList.length ? ' 못 찾은 예: ' + missList.join(' / ') : ''}`);
+      setEdits(next); setInlineEdit(true); setImportNew([...fresh.values()]);
+      setImportMsg(`엑셀 ${matched + missing + ambiguous}행 중 일치 ${matched} · 단가 변경 ${changed} · 못 찾음 ${missing}${fresh.size ? `(새 품목으로 등록할 수 있는 것 ${fresh.size}건)` : ''}${ambiguous ? ` · 모호(같은 품명·규격 중복) ${ambiguous}` : ''}${bad ? ` · 잘못된 금액 ${bad}칸 무시` : ''}${hidden ? ` · 현재 검색·분류에 안 보이는 품목 ${hidden}건 포함(분류를 «전체»로, 검색을 비우면 보입니다)` : ''}. 아래 목록에서 바뀐 칸을 확인하고 «저장(F8)»을 눌러야 반영됩니다(취소하면 아무것도 바뀌지 않음).${missList.length ? ' 못 찾은 예: ' + missList.join(' / ') : ''}`);
     } catch (e: any) { setImportMsg(`엑셀을 읽지 못했습니다: ${e.message || e}`); }
   };
   const setEdit = (p: Product, field: 'costPrice' | 'retailPrice' | 'sellingPrice', raw: string) => {
@@ -323,7 +337,8 @@ export function ProductMasterView({
         {importMsg && (
           <div className="mt-2 p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs text-emerald-800 flex items-start gap-2">
             <span className="flex-1">{importMsg}</span>
-            <button onClick={() => setImportMsg('')} className="text-emerald-700 hover:text-emerald-900 font-bold" aria-label="안내 닫기">×</button>
+            {importNew.length > 0 && <button onClick={registerImported} className="px-2.5 py-1 rounded border border-emerald-400 bg-white font-bold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap">새 품목 {importNew.length}건 등록</button>}
+            <button onClick={() => { setImportMsg(''); setImportNew([]); }} className="text-emerald-700 hover:text-emerald-900 font-bold" aria-label="안내 닫기">×</button>
           </div>
         )}
 

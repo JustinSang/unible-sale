@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { audit } from '@/lib/audit';
 import type { Customer } from '@/types';
 
 export async function GET() {
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
     const { error } = await supabase.from('customers').insert(newCustomer);
     if (error) throw new Error(error.message);
 
+    await audit('create', 'customer', String((newCustomer as any).id), `거래처 등록: ${(newCustomer as any).name ?? ''}`, newCustomer);
     return NextResponse.json(newCustomer, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || '거래처 추가 실패' }, { status: 500 });

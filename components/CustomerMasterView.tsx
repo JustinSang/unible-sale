@@ -55,6 +55,7 @@ export function CustomerMasterView({
   const [importMsg, setImportMsg] = useState('');
   const [importPlan, setImportPlan] = useState<{ news: Partial<Customer>[]; fills: { id: string; patch: Partial<Customer> }[]; opens: { id?: string; biz: string; nameKey: string; amount: number }[] }>({ news: [], fills: [], opens: [] });
   const [importAsOf, setImportAsOf] = useState('');
+  const [importStrict, setImportStrict] = useState(true); // 기준일 이전 거래는 «이미 기초잔액에 들어 있다»고 보고 모든 거래처에서 제외(잔액표를 전 거래처 넣을 때 권장)
   const importExcel = async (file: File) => {
     setImportPlan({ news: [], fills: [], opens: [] });
     try {
@@ -109,7 +110,7 @@ export function CustomerMasterView({
         // 방금 등록한 거래처의 id는 서버가 정하므로 목록을 다시 읽어 사업자번호·이름으로 찾는다
         const list: Customer[] = await fetch('/api/customers').then(r => (r.ok ? r.json() : []));
         const nk = (s: string) => String(s || '').replace(/\s+/g, '').toLowerCase(), dg = (s: string) => String(s || '').replace(/\D/g, '');
-        const next = { asOf: importAsOf, byCustomer: { ...opening.byCustomer } };
+        const next: { asOf: string; byCustomer: Record<string, number>; strict?: boolean } = { asOf: importAsOf, byCustomer: { ...opening.byCustomer }, strict: importStrict };
         for (const o of opens) {
           const id = o.id || list.find(x => (o.biz.length === 10 && dg(x.bizNumber) === o.biz) || nk(x.name) === o.nameKey)?.id;
           if (id) { next.byCustomer[id] = o.amount; c++; }
@@ -118,6 +119,8 @@ export function CustomerMasterView({
         const res = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cur, openingBalances: next }) });
         if (!res.ok) throw new Error('초기이월금 저장에 실패했습니다.');
         setOpening(next);
+        const rc = await fetch('/api/recalc-receivables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()).catch(() => null); // 거래처 미수금을 장부 잔액으로 다시 맞춘다
+        void rc;
       }
       setImportMsg(`새 거래처 ${a}건 등록, 기존 거래처 ${b}건 보충${opens.length ? `, 초기이월금 ${c}/${opens.length}건 반영` : ''}을 마쳤습니다.`); setImportPlan({ news: [], fills: [], opens: [] });
     } catch (e: any) { setImportMsg(`반영 중 오류: ${e.message || e} — 새 거래처 ${a}건·보충 ${b}건·초기이월금 ${c}건까지 반영됨. 같은 엑셀을 다시 읽으면 남은 것만 다시 나타납니다.`); setImportPlan({ news: [], fills: [], opens: [] }); }
@@ -343,6 +346,7 @@ export function CustomerMasterView({
           const res = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cur, openingBalances: next }) });
           if (!res.ok) throw new Error('초기이월금 저장에 실패했습니다.');
           setOpening(next);
+          fetch('/api/recalc-receivables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {}); // 거래처 미수금을 장부 잔액으로 다시 맞춘다
         }
       } else {
         await onAddCustomer(form);
@@ -451,7 +455,7 @@ export function CustomerMasterView({
         {importMsg && (
           <div className="mt-2 p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs text-emerald-800 flex items-start gap-2">
             <span className="flex-1">{importMsg}</span>
-            {importPlan.opens.length > 0 && <label className="flex items-center gap-1 whitespace-nowrap">기준일 <input type="date" value={importAsOf} onChange={e => setImportAsOf(e.target.value)} className="border border-emerald-300 rounded px-1.5 py-0.5 bg-white" /></label>}
+            {importPlan.opens.length > 0 && <label className="flex items-center gap-1 whitespace-nowrap" title="켜면 기준일 이전의 모든 거래를 기초잔액에 이미 들어 있는 것으로 보고 제외합니다(이월금을 입력하지 않은 거래처도). 실제 잔액표를 전 거래처 넣을 때 켜세요."><input type="checkbox" checked={importStrict} onChange={e => setImportStrict(e.target.checked)} />전 거래처 기준일 적용 · 기준일 <input type="date" value={importAsOf} onChange={e => setImportAsOf(e.target.value)} className="border border-emerald-300 rounded px-1.5 py-0.5 bg-white" /></label>}
             {(importPlan.news.length > 0 || importPlan.fills.length > 0 || importPlan.opens.length > 0) && <button onClick={applyImport} className="px-2.5 py-1 rounded border border-emerald-400 bg-white font-bold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap">새 {importPlan.news.length}건 등록 · 보충 {importPlan.fills.length}건{importPlan.opens.length ? ` · 이월금 ${importPlan.opens.length}건` : ''} 반영</button>}
             <button onClick={() => { setImportMsg(''); setImportPlan({ news: [], fills: [], opens: [] }); }} className="text-emerald-700 hover:text-emerald-900 font-bold" aria-label="안내 닫기">×</button>
           </div>

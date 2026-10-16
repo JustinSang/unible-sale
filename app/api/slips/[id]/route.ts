@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { openingConfig, syncReceivables } from '@/lib/receivables';
 import { audit } from '@/lib/audit';
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -12,7 +13,8 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     }
 
     // Rollback customer receivables (매출 외상분)
-    if (slip.slipType === 'SALES') {
+    const opCfg = await openingConfig();
+    if (!opCfg && slip.slipType === 'SALES') {
       const { data: cust } = await supabase.from('customers').select('receivables').eq('id', slip.customerId).maybeSingle();
       if (cust) {
         const next = Math.max(0, (cust.receivables || 0) - (slip.unpaidAmount || 0));
@@ -33,6 +35,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     await supabase.from('deliveries').delete().eq('slipId', id);
     const { error } = await supabase.from('slips').delete().eq('id', id);
     if (error) throw new Error(error.message);
+    if (opCfg) await syncReceivables(String(slip.customerId || ''), opCfg); // 장부 방식: 지운 뒤 장부 잔액으로 다시 맞춘다
 
     await audit('delete', 'slip', id, `전표 삭제: ${slip.slipNo} ${slip.customerName} ${Number(slip.totalAmount || 0).toLocaleString('ko-KR')}원`, slip); // 전체 내용을 남겨 복원 가능
     return NextResponse.json({ success: true, id });

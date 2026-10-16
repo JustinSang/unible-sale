@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { openingConfig, syncReceivables } from '@/lib/receivables';
 import { audit } from '@/lib/audit';
 
 export async function GET() {
@@ -39,8 +40,16 @@ export async function POST(req: Request) {
     const { error: insertError } = await supabase.from('collections').insert(record);
     if (insertError) throw new Error(insertError.message);
 
-    const { error: updateError } = await supabase.from('customers').update({ receivables: currentBalance }).eq('id', data.customerId);
-    if (updateError) throw new Error(updateError.message);
+    // 거래처 미수금 칸: 장부 방식(초기이월금 기준일 설정)이면 장부 잔액으로 맞추고, 아니면 이 거래만큼 늘리고 줄인다.
+    // (예전에는 화면이 계산한 «장부 잔액»을 그대로 덮어썼는데, 잔액표를 넣기 전에는 이관된 옛 전표 때문에 그 값이 부풀어 있어 — 2026-10-16 실측: 수금 200원에 미수금이 789만원으로 바뀜 — 전표 화면의 전잔액이 틀어졌다.)
+    const opCfg = await openingConfig();
+    if (opCfg) await syncReceivables(String(data.customerId || ''), opCfg);
+    else {
+      const cur = Number(customer?.receivables) || 0;
+      const next = data.type === 'collection' ? cur - amount - discount : cur + amount + discount;
+      const { error: updateError } = await supabase.from('customers').update({ receivables: next }).eq('id', data.customerId);
+      if (updateError) throw new Error(updateError.message);
+    }
 
     await audit('create', 'collection', String((record as any).id), `${(record as any).type === 'payment' ? '지급' : '수금'} 등록: ${(record as any).customerName} ${Number((record as any).amount || 0).toLocaleString('ko-KR')}원`, { date: (record as any).date, amount: (record as any).amount, discount: (record as any).discount ?? 0, method: (record as any).method ?? null, billNo: (record as any).billNo ?? null });
     return NextResponse.json(record, { status: 201 });

@@ -4,6 +4,7 @@ import { shiftPrices } from '@/lib/priceHistory';
 import { rotatePurchase } from '@/lib/purchaseHistory';
 import crypto from 'crypto';
 import { supabase } from '@/lib/supabase';
+import { openingConfig, ledgerBalance, syncReceivables } from '@/lib/receivables';
 import { audit } from '@/lib/audit';
 
 export async function GET() {
@@ -62,7 +63,9 @@ export async function POST(req: Request) {
 
     // Get customer prevReceivables
     const { data: customer } = await supabase.from('customers').select('name, receivables').eq('id', slipData.customerId).single();
-    const prevReceivables = customer?.receivables || 0;
+    // 장부 방식(초기이월금 기준일이 설정된 경우)이면 «전잔액»을 장부 잔액으로, 아니면 예전처럼 거래처 미수금 칸으로
+    const opCfg = await openingConfig();
+    const prevReceivables = (await ledgerBalance(String(slipData.customerId || ''), opCfg)) ?? (customer?.receivables || 0);
     const customerName = slipData.customerName || customer?.name || '미지정 거래처';
 
     const newSlip = {
@@ -100,7 +103,9 @@ export async function POST(req: Request) {
     const slipWithCrypto = { ...newSlip, digitalSignature, tsaToken };
 
     // 2. Update Customer Receivables
-    if (unpaidAmount > 0 && newSlip.slipType === 'SALES') {
+    if (opCfg) {
+      await syncReceivables(String(slipData.customerId || ''), opCfg); // 장부 방식: 저장한 전표까지 반영한 장부 잔액으로 맞춘다
+    } else if (unpaidAmount > 0 && newSlip.slipType === 'SALES') {
       const newReceivables = prevReceivables + unpaidAmount;
       await supabase.from('customers').update({ receivables: newReceivables }).eq('id', slipData.customerId);
     }

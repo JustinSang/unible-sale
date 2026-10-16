@@ -649,7 +649,11 @@ export function SlipEntryView({
   const totalSupplyAmount = items.reduce((s, it) => s + (it.supplyAmount || 0), 0);
   const totalTaxAmount = items.reduce((s, it) => s + (it.taxAmount || 0), 0);
   const totalAmount = totalSupplyAmount + totalTaxAmount;
-  const prevReceivables = currentCustomer?.receivables || 0;
+  // 이미 저장된 전표를 열어 둔 상태에서는 거래처 미수금(receivables)에 «이 전표의 미수»가 이미 들어 있으므로 빼서 «거래 전»을 만든다(안 빼면 저장 직후 화면이 미수를 두 번 센다 — 2026-10-16 실측: 410원 → 거래 후 820원).
+  // 이관 전표처럼 미수금에 안 들어 있던 경우를 위해 0 아래로는 내리지 않는다.
+  const origSlipForPrev = editingSlipId ? slips.find(s => s.id === editingSlipId) : undefined;
+  const origUnpaidForPrev = origSlipForPrev && String(origSlipForPrev.slipType).toUpperCase() === 'SALES' ? Number(origSlipForPrev.unpaidAmount) || 0 : 0;
+  const prevReceivables = Math.max(0, (currentCustomer?.receivables || 0) - origUnpaidForPrev);
   const unpaidAmount = Math.max(0, totalAmount - paidAmount);
   const nextReceivables = slipType === 'SALES' ? prevReceivables + unpaidAmount : prevReceivables;
 

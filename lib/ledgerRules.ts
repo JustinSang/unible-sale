@@ -198,11 +198,12 @@ export function dedupeSlips<T extends { slipType: string; slipDate: string; tota
 // ───── 초기이월금(기초잔액) 적용 — 원본(머니플러스)과 같은 뜻으로 «거래처별»이다 ─────
 // 원본: 초기이월금은 거래처마다 따로 입력하고(받을 금액 +, 줄 금액 −), Balance의 AC00(연 파일 첫머리 잔액)에 얹힌다. 입력하지 않은 거래처는 이월 0으로 모든 거래가 그대로 센다.
 // 그래서 기준일(asOf) 이전 거래를 «이미 기초잔액에 들어 있다»며 빼는 것은 초기이월금을 입력한 거래처에만 적용하고, 나머지 거래처는 건드리지 않는다.
-export interface OpeningConfig { asOf: string; byCustomer: Record<string, number> }
+// strict: 켜면 «기준일 이전 거래는 모두 기초잔액에 이미 들어 있다»고 보고 입력하지 않은 거래처(이월 0)에도 적용한다 — 실제 잔액표를 받아 전 거래처 기초잔액을 넣은 뒤(2026-10-16 추가) 오래된 이관 전표가 잔액을 부풀리지 않게 하는 용도.
+export interface OpeningConfig { asOf: string; byCustomer: Record<string, number>; strict?: boolean }
 export function withOpening<S extends { customerId: string; slipDate: string }, C extends { customerId: string; date: string }>(
   slips: S[], collections: C[], op: OpeningConfig
 ): { slips: S[]; collections: C[]; base: Map<string, number> } {
-  const has = (id: string) => !!op.asOf && Object.prototype.hasOwnProperty.call(op.byCustomer, id);
+  const has = (id: string) => !!op.asOf && (!!op.strict || Object.prototype.hasOwnProperty.call(op.byCustomer, id));
   return {
     slips: slips.filter(s => !has(s.customerId) || s.slipDate >= op.asOf),
     collections: collections.filter(c => !has(c.customerId) || c.date >= op.asOf),

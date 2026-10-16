@@ -7,7 +7,7 @@ import { customerBalance, withOpening, dedupeSlips, type OpeningConfig } from '@
 async function allByCustomer(table: string, customerId: string): Promise<any[]> {
   const out: any[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from(table).select('*').eq('customerId', customerId).range(from, from + 999);
+    const { data, error } = await supabase.from(table).select('*').eq('customerId', customerId).order('id').range(from, from + 999);
     if (error) throw new Error(`${table} 읽기 실패: ${error.message}`);
     out.push(...(data || []));
     if (!data || data.length < 1000) break;
@@ -16,7 +16,8 @@ async function allByCustomer(table: string, customerId: string): Promise<any[]> 
 }
 
 export async function openingConfig(): Promise<OpeningConfig | null> {
-  const { data } = await supabase.from('system_config').select('config').eq('id', 'default').maybeSingle();
+  const { data, error } = await supabase.from('system_config').select('config').eq('id', 'default').maybeSingle();
+  if (error) throw new Error(`시스템 설정 읽기 실패: ${error.message}`); // 읽기 실패를 «꺼짐»으로 오인해 기존 방식으로 새지 않게
   const ob = data?.config?.openingBalances;
   return ob?.asOf ? { asOf: ob.asOf, byCustomer: ob.byCustomer || {}, strict: !!ob.strict } : null;
 }
@@ -31,10 +32,23 @@ export async function ledgerBalance(customerId: string, op?: OpeningConfig | nul
 }
 
 /** 장부 잔액을 거래처 미수금 칸에 맞춘다. 장부 방식이 꺼져 있으면 아무것도 안 하고 null. */
+// 같은 거래처의 동시 sync를 한 줄로 세운다(읽고-계산하고-쓰는 사이에 다른 요청이 끼어 낡은 값으로 덮는 것 방지).
+// 지름길: 이 프로세스 안에서만 유효 — 동산화스너는 서버 1대(3300)라 충분, 서버 여러 대로 늘리면 DB 쪽 락 필요.
+const customerLocks = new Map<string, Promise<unknown>>();
+
 export async function syncReceivables(customerId: string, op?: OpeningConfig | null): Promise<number | null> {
-  const bal = await ledgerBalance(customerId, op);
-  if (bal === null) return null;
-  const { error } = await supabase.from('customers').update({ receivables: bal }).eq('id', customerId);
-  if (error) throw new Error(`미수금 갱신 실패: ${error.message}`);
-  return bal;
+  const prev = customerLocks.get(customerId) ?? Promise.resolve();
+  const task = prev.catch(() => {}).then(async () => {
+    const bal = await ledgerBalance(customerId, op);
+    if (bal === null) return null;
+    const { error } = await supabase.from('customers').update({ receivables: bal }).eq('id', customerId);
+    if (error) throw new Error(`미수금 갱신 실패: ${error.message}`);
+    return bal;
+  });
+  customerLocks.set(customerId, task);
+  try {
+    return await task;
+  } finally {
+    if (customerLocks.get(customerId) === task) customerLocks.delete(customerId);
+  }
 }

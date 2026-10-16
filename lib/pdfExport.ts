@@ -224,7 +224,8 @@ export async function appendFlowPages(b: PdfBuilder, root: HTMLElement, o: FlowO
   };
   await visit(root);
 
-  const contentH = rr.height * s;
+  // 종이 상자가 고정 높이여도 내용이 넘칠 수 있으니, 실제로 그린 것의 맨 아래까지 높이로 잡는다.
+  const contentH = Math.max(rr.height * s, ...ops.map(op => (op.k === 'text' ? op.y + op.fs * 0.3 : op.y + op.h)));
   const PH = o.pageHeightMm ?? contentH + 2 * o.marginMm, ch = PH - 2 * o.marginMm;
   const pages = Math.max(1, Math.ceil((contentH - 1.5) / ch)); // 1.5mm 이하 넘침은 반올림 오차로 보고 새 쪽을 만들지 않는다
   for (let p = 0; p < pages; p++) {

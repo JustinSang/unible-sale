@@ -5,8 +5,11 @@ import dotenv from 'dotenv';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://nekkgodtsorizpisfbyf.supabase.co';
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_APGLQv5bFm_P-sX8nml_zA_9S_32ISj';
+// 주소·키는 .env.local에서만 읽는다(예전에 코드에 박아 두었던 기본 주소·공개 키는 제거 — 저장소에 키를 두지 않는다).
+// RLS를 켠 DB에는 서버 전용 SUPABASE_SERVICE_ROLE_KEY가 있어야 쓸 수 있다(없으면 anon 키로 시도).
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+if (!SUPABASE_URL || !SUPABASE_KEY) { console.error('NEXT_PUBLIC_SUPABASE_URL 과 SUPABASE_SERVICE_ROLE_KEY(또는 ANON 키)가 .env.local에 있어야 합니다.'); process.exit(1); }
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'db.json');

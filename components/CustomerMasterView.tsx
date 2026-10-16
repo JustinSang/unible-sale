@@ -53,15 +53,16 @@ export function CustomerMasterView({
   // 찾는 순서: 사업자번호(숫자 10자리) → 거래처명(공백 무시). 지름길: 열 이름은 별칭 표로만 인식, 현장·초기이월금은 가져오지 않는다.
   const importRef = useRef<HTMLInputElement | null>(null);
   const [importMsg, setImportMsg] = useState('');
-  const [importPlan, setImportPlan] = useState<{ news: Partial<Customer>[]; fills: { id: string; patch: Partial<Customer> }[] }>({ news: [], fills: [] });
+  const [importPlan, setImportPlan] = useState<{ news: Partial<Customer>[]; fills: { id: string; patch: Partial<Customer> }[]; opens: { id?: string; biz: string; nameKey: string; amount: number }[] }>({ news: [], fills: [], opens: [] });
+  const [importAsOf, setImportAsOf] = useState('');
   const importExcel = async (file: File) => {
-    setImportPlan({ news: [], fills: [] });
+    setImportPlan({ news: [], fills: [], opens: [] });
     try {
       const XLSX = await import('xlsx');
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true });
       const rows: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
       const norm = (s: unknown) => String(s ?? '').replace(/\s+/g, '').toLowerCase();
-      const ALIAS: Record<string, string[]> = { name: ['거래처명', '상호', '업체명', '거래처', '회사명'], bizNumber: ['사업자번호', '사업자등록번호'], ceo: ['대표자', '대표', '대표자명'], tel: ['전화', '전화번호', '연락처'], fax: ['팩스', '팩스번호'], mobile: ['휴대폰', '핸드폰', '휴대전화'], email: ['이메일', 'email', 'e-mail'], address: ['주소', '사업장주소'], bizType: ['업태'], bizItem: ['종목'], contactName: ['담당자'], memo: ['비고', '메모'] };
+      const ALIAS: Record<string, string[]> = { name: ['거래처명', '상호', '업체명', '거래처', '회사명'], bizNumber: ['사업자번호', '사업자등록번호'], ceo: ['대표자', '대표', '대표자명'], tel: ['전화', '전화번호', '연락처'], fax: ['팩스', '팩스번호'], mobile: ['휴대폰', '핸드폰', '휴대전화'], email: ['이메일', 'email', 'e-mail'], address: ['주소', '사업장주소'], bizType: ['업태'], bizItem: ['종목'], contactName: ['담당자'], memo: ['비고', '메모'], opening: ['초기이월금', '이월금', '기초잔액', '전기이월', '전기이월금'] };
       const hi = rows.slice(0, 10).findIndex(r => r.some(c => ALIAS.name.includes(norm(c))));
       if (hi < 0) { setImportMsg('헤더 줄을 찾지 못했습니다. 첫 10줄 안에 «거래처명»(또는 상호·업체명) 열이 있어야 합니다.'); return; }
       const head = rows[hi].map(norm); const col: Record<string, number> = {};
@@ -69,14 +70,16 @@ export function CustomerMasterView({
       const digits = (s: unknown) => String(s ?? '').replace(/\D/g, '');
       const byBiz = new Map<string, Customer>(), byName = new Map<string, Customer[]>();
       customers.forEach(c => { if (digits(c.bizNumber).length === 10) byBiz.set(digits(c.bizNumber), c); const k = norm(c.name); byName.set(k, [...(byName.get(k) || []), c]); });
-      const news = new Map<string, Partial<Customer>>(); const fills: { id: string; patch: Partial<Customer> }[] = []; let same = 0, ambiguous = 0, empty = 0, dupInFile = 0;
+      const news = new Map<string, Partial<Customer>>(); const fills: { id: string; patch: Partial<Customer> }[] = []; const opens: { id?: string; biz: string; nameKey: string; amount: number }[] = []; let openSkipped = 0; let same = 0, ambiguous = 0, empty = 0, dupInFile = 0;
       for (const r of rows.slice(hi + 1)) {
         const val = (k: string) => (col[k] != null ? String(r[col[k]] ?? '').trim() : '');
         const name = val('name'); if (!name) { if (r.some(c => String(c).trim())) empty++; continue; }
         const biz = digits(val('bizNumber')); const bizFmt = biz.length === 10 ? `${biz.slice(0, 3)}-${biz.slice(3, 5)}-${biz.slice(5)}` : val('bizNumber');
         const rec: Partial<Customer> = { name, bizNumber: bizFmt, ceo: val('ceo'), tel: val('tel'), fax: val('fax'), mobile: val('mobile'), email: val('email'), address: val('address'), bizType: val('bizType'), bizItem: val('bizItem'), contactName: val('contactName'), memo: val('memo') };
+        const openAmt = val('opening') ? Number(val('opening').replace(/[,\s원]/g, '')) : NaN;
         let hit: Customer | undefined = biz.length === 10 ? byBiz.get(biz) : undefined;
         if (!hit) { const l = byName.get(norm(name)) || []; if (l.length > 1) { ambiguous++; continue; } hit = l[0]; }
+        if (Number.isFinite(openAmt) && openAmt !== 0) { if (hit && opening.byCustomer[hit.id]) openSkipped++; else opens.push({ id: hit?.id, biz, nameKey: norm(name), amount: openAmt }); }
         if (hit) {
           const patch: Record<string, unknown> = {};
           (Object.keys(rec) as (keyof Customer)[]).forEach(k => { if (k !== 'name' && rec[k] && !String((hit as any)[k] ?? '').trim()) patch[k] = rec[k]; });
@@ -86,20 +89,38 @@ export function CustomerMasterView({
           if (news.has(key)) dupInFile++; else news.set(key, rec);
         }
       }
-      setImportPlan({ news: [...news.values()], fills });
-      setImportMsg(`엑셀 거래처 읽기 결과: 새 거래처 ${news.size}건 · 기존 거래처 빈 칸 보충 ${fills.length}건 · 변경 없음 ${same}건${ambiguous ? ` · 같은 이름이 여럿이라 건너뜀 ${ambiguous}건` : ''}${dupInFile ? ` · 엑셀 안 중복 ${dupInFile}건 무시` : ''}${empty ? ` · 거래처명이 없는 줄 ${empty}건 무시` : ''}. 아래 버튼을 눌러야 반영됩니다(기존 값은 덮어쓰지 않음).`);
+      setImportPlan({ news: [...news.values()], fills, opens }); setImportAsOf(opening.asOf || '');
+      setImportMsg(`엑셀 거래처 읽기 결과: 새 거래처 ${news.size}건 · 기존 거래처 빈 칸 보충 ${fills.length}건 · 변경 없음 ${same}건${ambiguous ? ` · 같은 이름이 여럿이라 건너뜀 ${ambiguous}건` : ''}${dupInFile ? ` · 엑셀 안 중복 ${dupInFile}건 무시` : ''}${empty ? ` · 거래처명이 없는 줄 ${empty}건 무시` : ''}${opens.length ? ` · 초기이월금 ${opens.length}건(받을 금액 +, 줄 금액 −, 아래 기준일 필수·전 거래처 공통)` : ''}${openSkipped ? ` · 이미 초기이월금이 있어 건너뜀 ${openSkipped}건` : ''}. 아래 버튼을 눌러야 반영됩니다(기존 값은 덮어쓰지 않음).`);
     } catch (e: any) { setImportMsg(`엑셀을 읽지 못했습니다: ${e.message || e}`); }
   };
   const applyImport = async () => {
-    const { news, fills } = importPlan; if (!news.length && !fills.length) return;
+    const { news, fills, opens } = importPlan; if (!news.length && !fills.length && !opens.length) return;
+    if (opens.length) {
+      if (!importAsOf) { alert('초기이월금을 넣으려면 기준일(이 날짜 시작 시점의 잔액)을 정해 주세요.'); return; }
+      if (opening.asOf && opening.asOf !== importAsOf) { alert(`초기이월금 기준일은 전 거래처 공통입니다. 이미 ${opening.asOf}로 정해져 있어 다른 날짜(${importAsOf})로 섞어 넣을 수 없습니다. 기준일을 ${opening.asOf}로 맞춰 주세요.`); return; }
+    }
     const sample = news.slice(0, 5).map(c => c.name).join(', ');
-    if (!window.confirm(`새 거래처 ${news.length}건 등록${news.length ? `(예: ${sample}${news.length > 5 ? ' …' : ''})` : ''}, 기존 거래처 ${fills.length}건의 빈 칸 보충을 진행합니다. 계속할까요?`)) return;
-    let a = 0, b = 0;
+    if (!window.confirm(`새 거래처 ${news.length}건 등록${news.length ? `(예: ${sample}${news.length > 5 ? ' …' : ''})` : ''}, 기존 거래처 ${fills.length}건의 빈 칸 보충${opens.length ? `, 초기이월금 ${opens.length}건(기준일 ${importAsOf}, 합계 ${opens.reduce((s, o) => s + o.amount, 0).toLocaleString('ko-KR')}원)` : ''}을 진행합니다. 계속할까요?`)) return;
+    let a = 0, b = 0, c = 0;
     try {
-      for (const c of news) { await onAddCustomer(c); a++; }
+      for (const n of news) { await onAddCustomer(n); a++; }
       for (const f of fills) { await onUpdateCustomer(f.id, f.patch); b++; }
-      setImportMsg(`새 거래처 ${a}건 등록, 기존 거래처 ${b}건 보충을 마쳤습니다.`); setImportPlan({ news: [], fills: [] });
-    } catch (e: any) { setImportMsg(`반영 중 오류: ${e.message || e} — 새 거래처 ${a}건·보충 ${b}건까지 반영됨. 같은 엑셀을 다시 읽으면 남은 것만 다시 나타납니다.`); setImportPlan({ news: [], fills: [] }); }
+      if (opens.length) {
+        // 방금 등록한 거래처의 id는 서버가 정하므로 목록을 다시 읽어 사업자번호·이름으로 찾는다
+        const list: Customer[] = await fetch('/api/customers').then(r => (r.ok ? r.json() : []));
+        const nk = (s: string) => String(s || '').replace(/\s+/g, '').toLowerCase(), dg = (s: string) => String(s || '').replace(/\D/g, '');
+        const next = { asOf: importAsOf, byCustomer: { ...opening.byCustomer } };
+        for (const o of opens) {
+          const id = o.id || list.find(x => (o.biz.length === 10 && dg(x.bizNumber) === o.biz) || nk(x.name) === o.nameKey)?.id;
+          if (id) { next.byCustomer[id] = o.amount; c++; }
+        }
+        const cur = await fetch('/api/config').then(r => (r.ok ? r.json() : {}));
+        const res = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cur, openingBalances: next }) });
+        if (!res.ok) throw new Error('초기이월금 저장에 실패했습니다.');
+        setOpening(next);
+      }
+      setImportMsg(`새 거래처 ${a}건 등록, 기존 거래처 ${b}건 보충${opens.length ? `, 초기이월금 ${c}/${opens.length}건 반영` : ''}을 마쳤습니다.`); setImportPlan({ news: [], fills: [], opens: [] });
+    } catch (e: any) { setImportMsg(`반영 중 오류: ${e.message || e} — 새 거래처 ${a}건·보충 ${b}건·초기이월금 ${c}건까지 반영됨. 같은 엑셀을 다시 읽으면 남은 것만 다시 나타납니다.`); setImportPlan({ news: [], fills: [], opens: [] }); }
   };
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -430,8 +451,9 @@ export function CustomerMasterView({
         {importMsg && (
           <div className="mt-2 p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs text-emerald-800 flex items-start gap-2">
             <span className="flex-1">{importMsg}</span>
-            {(importPlan.news.length > 0 || importPlan.fills.length > 0) && <button onClick={applyImport} className="px-2.5 py-1 rounded border border-emerald-400 bg-white font-bold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap">새 {importPlan.news.length}건 등록 · 보충 {importPlan.fills.length}건 반영</button>}
-            <button onClick={() => { setImportMsg(''); setImportPlan({ news: [], fills: [] }); }} className="text-emerald-700 hover:text-emerald-900 font-bold" aria-label="안내 닫기">×</button>
+            {importPlan.opens.length > 0 && <label className="flex items-center gap-1 whitespace-nowrap">기준일 <input type="date" value={importAsOf} onChange={e => setImportAsOf(e.target.value)} className="border border-emerald-300 rounded px-1.5 py-0.5 bg-white" /></label>}
+            {(importPlan.news.length > 0 || importPlan.fills.length > 0 || importPlan.opens.length > 0) && <button onClick={applyImport} className="px-2.5 py-1 rounded border border-emerald-400 bg-white font-bold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap">새 {importPlan.news.length}건 등록 · 보충 {importPlan.fills.length}건{importPlan.opens.length ? ` · 이월금 ${importPlan.opens.length}건` : ''} 반영</button>}
+            <button onClick={() => { setImportMsg(''); setImportPlan({ news: [], fills: [], opens: [] }); }} className="text-emerald-700 hover:text-emerald-900 font-bold" aria-label="안내 닫기">×</button>
           </div>
         )}
       </div>

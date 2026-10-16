@@ -82,12 +82,13 @@ const td = 'px-2 py-1 text-xs border border-slate-200';
 const num = `${td} text-right font-mono`;
 
 // 단순 보고서 표(머리글·행·합계 한 줄) — 숫자 칸은 오른쪽 정렬
+// 머리글 key에 번호를 붙인다 — 같은 이름의 열(예: 부가세 집계의 «건수» 2개)이 있어 이름만 쓰면 key가 겹친다.
 function ReportTable({ head, rows, foot, numFrom, limit = 1000 }: { head: string[]; rows: (string | number)[][]; foot?: (string | number)[]; numFrom: number; limit?: number }) {
   const cell = (v: string | number, i: number) => <td key={i} className={i >= numFrom && typeof v === 'number' ? num : td}>{typeof v === 'number' ? won(v) : v}</td>;
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">
-        <thead><tr>{head.map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+        <thead><tr>{head.map((h, i) => <th key={`${i}-${h}`} className={th}>{h}</th>)}</tr></thead>
         <tbody>
           {rows.slice(0, limit).map((r, i) => <tr key={i}>{r.map(cell)}</tr>)}
           {rows.length === 0 && <tr><td className={td} colSpan={head.length}>해당 기간에 자료가 없습니다.</td></tr>}

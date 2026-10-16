@@ -205,7 +205,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, message: '팩스 발송이 성공적으로 접수되었습니다.', data: sendResult, dispatchStatus });
       } catch (error: any) {
         if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-        return NextResponse.json({ success: false, error: error.message || error.code || '팩스 전송 실패' }, { status: 500 });
+        return NextResponse.json({ success: false, error: error.code ? `팩스 전송 실패(팝빌 오류 ${error.code}): ${error.message || ''}` : (error.message || '팩스 전송 실패') }, { status: 500 }); // 팝빌 오류 번호를 그대로 보여 준다(2026-10-16 읽기 호출이 -99010016으로 거부됨)
       }
     }
 

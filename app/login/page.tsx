@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { BRAND } from '@/lib/brand';
 
 // 로그인 화면. 로그인 기능(AUTH_SECRET·AUTH_USERS)이 꺼진 서버에서는 접속해도 바로 첫 화면으로 돌려보낸다.
 export default function LoginPage() {
@@ -26,7 +27,7 @@ export default function LoginPage() {
       <form onSubmit={submit} className="w-full max-w-sm bg-white rounded-xl shadow border border-slate-200 p-6 space-y-4">
         <div>
           <h1 className="text-lg font-bold text-slate-800">UNIBLE SALE</h1>
-          <p className="text-xs text-slate-500">동산화스너 클라우드 ERP — 로그인</p>
+          <p className="text-xs text-slate-500">{BRAND.company} 클라우드 ERP — 로그인</p>
         </div>
         <label className="block text-xs font-semibold text-slate-700">아이디
           <input autoFocus autoComplete="username" value={id} onChange={e => setId(e.target.value)} className="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm" />

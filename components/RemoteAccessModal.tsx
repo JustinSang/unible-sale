@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { BRAND } from '@/lib/brand';
 import {
   Globe,
   Wifi,
@@ -62,7 +63,7 @@ export function RemoteAccessModal({ isOpen, onClose }: RemoteAccessModalProps) {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const shareText = `[동산화스너 UNIBLE SALE 클라우드 ERP 접속 안내]
+  const shareText = `[${BRAND.company} UNIBLE SALE 클라우드 ERP 접속 안내]
 사내 Wi-Fi 접속: ${localUrl}
 원격 Tailscale 접속: ${tailscaleUrl}
 스마트폰 또는 PC 브라우저(크롬, 사파리)에서 바로 접속하세요.`;
@@ -186,7 +187,7 @@ export function RemoteAccessModal({ isOpen, onClose }: RemoteAccessModalProps) {
                     <span>스마트폰 카메라로 즉시 스캔</span>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    스마트폰 기본 카메라로 이 QR코드를 비추면 주소 입력 없이 바로 동산화스너 UNIBLE SALE ERP가 열립니다.
+                    스마트폰 기본 카메라로 이 QR코드를 비추면 주소 입력 없이 바로 {BRAND.company} UNIBLE SALE ERP가 열립니다.
                   </p>
                 </div>
               </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { BRAND } from '@/lib/brand';
 import type { Slip, SystemConfig, Customer } from '@/types';
 import { OriginalSlipForm } from './OriginalSlipForm';
 import { OriginalFormReport } from './OriginalFormReport';
@@ -21,7 +22,7 @@ export function SlipOriginalForm({ slip: raw, config, customer, copies }: { slip
         kind={slip.slipType === 'ESTIMATE' ? 'estimate' : 'order'}
         own={{ name: ci.name, ceo: ci.ceo, bizNumber: ci.bizNumber, address: ci.address, tel: ci.tel, fax: ci.fax, bizType: ci.bizType, bizItem: ci.bizItem }}
         counterpart={slip.customerName}
-        seal="/seal-real.png"
+        seal={BRAND.seal}
       />
     );
   }
@@ -33,7 +34,7 @@ export function SlipOriginalForm({ slip: raw, config, customer, copies }: { slip
       supplier={inbound ? cust : own}
       buyer={inbound ? own : cust}
       kindLabel={SLIP_TYPE_LABEL[slip.slipType] || ''}
-      seal={inbound ? '' : '/seal-real.png'}
+      seal={inbound ? '' : BRAND.seal}
       prevBalance={slip.prevReceivables}
       showPrev={slip.showPrevBalance !== false}
       copies={copies}

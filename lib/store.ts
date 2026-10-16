@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { BRAND } from '@/lib/brand';
 import path from 'path';
 import type {
   Product,
@@ -52,14 +53,7 @@ const INITIAL_CONFIG: SystemConfig = {
   syncIntervalSec: 15,
   lastSyncTime: new Date().toISOString(),
   companyInfo: {
-    name: '동산화스너',
-    bizNumber: '202-14-62327',
-    ceo: '상원준',
-    address: '고양시 덕양구 삼원로 73, 210호',
-    tel: '02-2267-1300',
-    fax: '02-2274-4386',
-    bizType: '도매',
-    bizItem: '볼트너트 철물외'
+    ...BRAND.companyDefaults
   }
 };
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { BRAND } from '@/lib/brand';
 import {
   FileText,
   Package,
@@ -70,7 +71,7 @@ export function Header({
     { id: 'inventory', label: '재고수불부', icon: Database, hotkey: 'F9' },
     { id: 'mdb_tool', label: 'MDB 데이터도구', icon: HardDrive, hotkey: 'F10' },
     { id: 'ledgers', label: '장부 / 집계표', icon: BookOpen, hotkey: 'F12' },
-    { id: 'midong', label: '미동 발주내역', icon: Globe, hotkey: '' },
+    ...(BRAND.featureMidong ? [{ id: 'midong', label: '미동 발주내역', icon: Globe, hotkey: '' }] : []),
     { id: 'ini_sync', label: '환경설정 / 동기화', icon: Sliders, hotkey: 'F11' }
   ];
 
@@ -102,7 +103,7 @@ export function Header({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="font-bold text-slate-800 text-base leading-tight tracking-tight">
-                  동산화스너 UNIBLE SALE 클라우드 ERP
+                  {BRAND.company} UNIBLE SALE 클라우드 ERP
                 </h1>
                 <span className="text-[11px] bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold px-2 py-0.5 rounded-full shadow-2xs">
                   Enterprise Cloud
@@ -145,7 +146,7 @@ export function Header({
 
             {me?.enabled && me.loggedIn && (
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
-                <span title={me.role === 'admin' ? '관리자 계정' : '직원 계정(삭제·미동 전환·설정 변경 불가)'}>{me.name}{me.role === 'admin' ? ' (관리자)' : ''}</span>
+                <span title={me.role === 'admin' ? '관리자 계정' : '직원 계정(삭제·일괄 전환·설정 변경 불가)'}>{me.name}{me.role === 'admin' ? ' (관리자)' : ''}</span>
                 <button onClick={logout} className="px-2 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 font-semibold">로그아웃</button>
               </span>
             )}
@@ -252,7 +253,7 @@ export function Header({
               </div>
               <h1 className="font-semibold text-neutral-800 text-sm tracking-tight flex items-center gap-1.5">
                 <span className="font-bold text-blue-700">UNIBLE SALE ERP</span>
-                <span className="text-neutral-400 font-normal">&mdash; 동산화스너 물류본부</span>
+                <span className="text-neutral-400 font-normal">{BRAND.dept ? <>&mdash; {BRAND.company} {BRAND.dept}</> : null}</span>
               </h1>
             </div>
 
@@ -332,7 +333,7 @@ export function Header({
             <div className="w-4 h-4 bg-amber-400 rounded-sm flex items-center justify-center text-[10px] text-blue-900 font-black">
               UB
             </div>
-            <span>[Enterprise Cloud] UNIBLE SALE ERP - 동산화스너 v3.5.0</span>
+            <span>[Enterprise Cloud] UNIBLE SALE ERP - {BRAND.company} {BRAND.version}</span>
           </div>
           <div className="flex items-center gap-1">
             <span className="text-[11px] text-blue-100 font-normal mr-2">

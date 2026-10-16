@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { BRAND } from '@/lib/brand';
 import { Header } from '@/components/Header';
 import { SlipEntryView } from '@/components/SlipEntryView';
 import { ProductMasterView } from '@/components/ProductMasterView';
@@ -15,7 +16,6 @@ import { MdbAnalyzerView } from '@/components/MdbAnalyzerView';
 import { CloudSyncAndIniView } from '@/components/CloudSyncAndIniView';
 import { PrintModal } from '@/components/PrintModal';
 import { PdfBundleModal } from '@/components/PdfBundleModal';
-import { MidongOrdersView } from '@/components/MidongOrdersView';
 import { AdminPinModal } from '@/components/AdminPinModal';
 import type {
   Product,
@@ -29,6 +29,11 @@ import type {
   TaxInvoice,
   CollectionPayment
 } from '@/types';
+
+// 미동이엔씨 연동 화면은 동산화스너 배포에서만 불러온다(다른 고객사 빌드에는 코드·문구가 들어가지 않는다 — lib/brand.ts 와 같은 방식).
+/* eslint-disable @typescript-eslint/no-require-imports */
+const MidongOrdersView: typeof import('@/components/MidongOrdersView').MidongOrdersView | null = (process.env.NEXT_PUBLIC_TENANT || 'dongsan') === 'dongsan' ? require('@/components/MidongOrdersView').MidongOrdersView : null;
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('slips');
@@ -55,14 +60,7 @@ export default function App() {
     syncIntervalSec: 15,
     lastSyncTime: new Date().toISOString(),
     companyInfo: {
-      name: '동산화스너',
-      bizNumber: '202-14-62327',
-      ceo: '상원준',
-      address: '고양시 덕양구 삼원로 73, 210호',
-      tel: '02)2267-1300',
-      fax: '02)2274-4386',
-      bizType: '도매',
-      bizItem: '볼트너트 철물외'
+      ...BRAND.companyDefaultsPage
     }
   });
 
@@ -437,7 +435,7 @@ export default function App() {
 
   // Reset demo
   const handleResetDemo = async () => {
-    if (!confirm('동산화스너 UNIBLE SALE 기본 표준 데이터로 복원하시겠습니까?')) return;
+    if (!confirm(`${BRAND.company} UNIBLE SALE 기본 표준 데이터로 복원하시겠습니까?`)) return;
     const res = await fetch('/api/reset-demo', { method: 'POST' });
     if (res.ok) {
       await fetchFullData();
@@ -496,7 +494,7 @@ export default function App() {
         {isLoading ? (
           <div className="py-20 text-center text-slate-500">
             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="font-semibold text-sm">동산화스너 클라우드 ERP 데이터베이스를 불러오는 중...</p>
+            <p className="font-semibold text-sm">{BRAND.company} 클라우드 ERP 데이터베이스를 불러오는 중...</p>
           </div>
         ) : (
           <>
@@ -594,7 +592,7 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'midong' && <MidongOrdersView slips={slips} onSlipsChanged={() => fetchFullData(true)} />}
+            {currentTab === 'midong' && MidongOrdersView && <MidongOrdersView slips={slips} onSlipsChanged={() => fetchFullData(true)} />}
 
             {currentTab === 'ledgers' && (
               <LedgerReportsView
@@ -642,7 +640,7 @@ export default function App() {
       <footer className="border-t border-slate-200 bg-white/80 py-2.5 px-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
           <div>
-            <strong>{config?.companyInfo?.name || '동산화스너'}</strong> &middot; 사업자번호: {config?.companyInfo?.bizNumber || '-'} &middot; 대표: {config?.companyInfo?.ceo || '-'} &middot; TEL: {config?.companyInfo?.tel || '-'}
+            <strong>{config?.companyInfo?.name || BRAND.company}</strong> &middot; 사업자번호: {config?.companyInfo?.bizNumber || '-'} &middot; 대표: {config?.companyInfo?.ceo || '-'} &middot; TEL: {config?.companyInfo?.tel || '-'}
           </div>
           <div className="text-[11px] font-mono text-slate-400">
             UNIBLE SALE 클라우드 ERP &middot; Windows 10/11 & macOS Universal

@@ -324,12 +324,16 @@ export function SlipEntryView({
         p.name.toLowerCase().includes(q) ||
         p.code.toLowerCase().includes(q) ||
         p.spec.toLowerCase().includes(q) ||
-        (p.category && p.category.toLowerCase().includes(q))
+        (p.category && p.category.toLowerCase().includes(q)) ||
+        (p.barcode && p.barcode.toLowerCase().includes(q))
       ) {
         matches.push(p);
         if (matches.length >= 60) break;
       }
     }
+    // 바코드 스캐너는 숫자열 + Enter로 입력된다 — 바코드가 정확히 같은 품목을 맨 앞에 둬서 Enter 한 번에 바로 선택되게 한다.
+    const exact = matches.findIndex(p => p.barcode && p.barcode.toLowerCase() === q);
+    if (exact > 0) matches.unshift(matches.splice(exact, 1)[0]);
     return matches;
   }, [products, deferredProductSearchKeyword]);
 
@@ -1952,7 +1956,7 @@ export function SlipEntryView({
                 <input
                   type="text"
                   autoFocus
-                  placeholder="품목명, 규격, 코드(예: PRD-0001, 앙카, 볼트, 너트)..."
+                  placeholder="품목명, 규격, 코드, 바코드(스캐너로 읽고 Enter)..."
                   value={productSearchKeyword}
                   onChange={e => setProductSearchKeyword(e.target.value)}
                   onKeyDown={e => {

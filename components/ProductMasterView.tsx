@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useDeferredValue, useEffect, useRef } from 'react';
+import { BRAND } from '@/lib/brand';
 import {
   Plus,
   Copy,
@@ -318,7 +319,7 @@ export function ProductMasterView({
               <span>품목 마스터 관리</span>
               <span className="text-xs font-mono text-slate-400">({filteredProducts.length.toLocaleString('ko-KR')}건 표시)</span>
             </h2>
-            <p className="text-xs text-slate-500">동산화스너 취급 볼트, 너트, 와셔, 앙카, 찬넬 규격 및 원가/출고단가 관리</p>
+            <p className="text-xs text-slate-500">{BRAND.company} 취급 {BRAND.items || '품목'} 규격 및 원가/출고단가 관리</p>
           </div>
           {inlineEdit ? (
               <>

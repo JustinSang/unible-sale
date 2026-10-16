@@ -1,6 +1,7 @@
 'use client';
 
 import { displayProductName } from '@/lib/productName';
+import { BRAND } from '@/lib/brand';
 import { OriginalSlipForm } from './OriginalSlipForm';
 import { OriginalFormReport } from './OriginalFormReport';
 import { SlipOriginalForm } from './SlipOriginalForm';
@@ -527,7 +528,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
               kind="request"
               own={{ name: ci.name, ceo: ci.ceo, bizNumber: ci.bizNumber, address: ci.address, tel: ci.tel, fax: ci.fax, bizType: ci.bizType, bizItem: ci.bizItem }}
               counterpart={slip.customerName}
-              seal="/seal-real.png"
+              seal={BRAND.seal}
             />
           ) : printType === 'original' ? (
             slip.slipType === 'ESTIMATE' || slip.slipType === 'ORDER' ? (
@@ -536,7 +537,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
               kind={slip.slipType === 'ESTIMATE' ? 'estimate' : 'order'}
               own={{ name: ci.name, ceo: ci.ceo, bizNumber: ci.bizNumber, address: ci.address, tel: ci.tel, fax: ci.fax, bizType: ci.bizType, bizItem: ci.bizItem }}
               counterpart={slip.customerName}
-              seal="/seal-real.png"
+              seal={BRAND.seal}
             />
             ) : (
             <OriginalSlipForm
@@ -544,7 +545,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
               supplier={isInbound ? custParty : ownParty}
               buyer={isInbound ? ownParty : custParty}
               kindLabel={({ SALES: '매출', PURCHASE: '매입', RETURN_IN: '반입', RETURN_OUT: '반출', ESTIMATE: '견적', ORDER: '발주', DELIVERY: '납품', CONTRACT: '수주' } as Record<string, string>)[slip.slipType] || ''}
-              seal={isInbound ? '' : '/seal-real.png'}
+              seal={isInbound ? '' : BRAND.seal}
               prevBalance={slip.prevReceivables}
               showPrev={slip.showPrevBalance !== false}
               copies={slipCopies}
@@ -602,7 +603,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
                         <tr className="border-b border-slate-900">
                           <td className="w-[60px] border-r border-slate-900 p-1 text-center font-medium">상 &nbsp; 호</td>
                           <td className="p-1 text-center font-bold text-[13px]">{config.companyInfo.name}</td>
-                          <td className="w-[70px] border-l border-slate-900 p-1 text-center text-[12px] relative">{config.companyInfo.ceo}<img src="/seal-real.png" alt="인" className="absolute right-0 top-1/2 -translate-y-1/2 w-7 h-7 mix-blend-multiply" /></td>
+                          <td className="w-[70px] border-l border-slate-900 p-1 text-center text-[12px] relative">{config.companyInfo.ceo}{BRAND.seal && <img src={BRAND.seal} alt="인" className="absolute right-0 top-1/2 -translate-y-1/2 w-7 h-7 mix-blend-multiply" />}</td>
                         </tr>
                         <tr className="border-b border-slate-900">
                           <td className="w-[60px] border-r border-slate-900 p-1 text-center font-medium">주 &nbsp; 소</td>
@@ -710,7 +711,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
                       <th className="border-r border-b border-slate-900 py-1 bg-slate-50 text-center">대표</th>
                       <td colSpan={3} className="border-b border-slate-900 px-2 py-1 font-bold relative">
                         <span>{config.companyInfo.ceo}</span>
-                        <img src="/seal-real.png" alt="인" className="absolute left-12 top-1/2 -translate-y-1/2 w-[34px] h-[34px] mix-blend-multiply" />
+                        {BRAND.seal && <img src={BRAND.seal} alt="인" className="absolute left-12 top-1/2 -translate-y-1/2 w-[34px] h-[34px] mix-blend-multiply" />}
                       </td>
                     </tr>
                     <tr>
@@ -872,7 +873,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
                           <th className="py-0.5 text-slate-500">상호 / 대표</th>
                           <td className={`relative ${party.own ? '' : 'font-bold'}`}>
                             <span>{party.name}{party.site && <span className="text-blue-700 ml-1">[{party.site}]</span>} / {party.ceo || '-'}</span>
-                            {party.own && <img src="/seal-real.png" alt="인" className="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 mix-blend-multiply" />}
+                            {party.own && BRAND.seal && <img src={BRAND.seal} alt="인" className="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 mix-blend-multiply" />}
                           </td>
                         </tr>
                         <tr>
@@ -1065,7 +1066,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
                       <div key={sg.label}>
                         <span className="text-slate-500 text-[10px]">{sg.label} : </span>
                         <span className="border-b border-slate-400 px-6 py-0.5 font-bold">
-                          {sg.own ? <>{config.companyInfo.ceo} <img src="/seal-real.png" alt="인" className="inline-block w-7 h-7 align-middle mix-blend-multiply" /></> : '(인 / 서명)'}
+                          {sg.own ? <>{config.companyInfo.ceo} {BRAND.seal && <img src={BRAND.seal} alt="인" className="inline-block w-7 h-7 align-middle mix-blend-multiply" />}</> : '(인 / 서명)'}
                         </span>
                       </div>
                     ))}
@@ -1094,7 +1095,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
             <div className="w-[80mm] bg-white p-4 shadow-sm border border-slate-300 print:border-none print:shadow-none print:p-0 print:w-full font-mono text-[11px] text-black">
               <div className="text-center pb-2 border-b border-dashed border-black">
                 <h2 className="text-base font-black tracking-widest">[ 영 수 증 ]</h2>
-                <div className="text-sm font-extrabold mt-1">{config.companyInfo.name || '동산화스너'}</div>
+                <div className="text-sm font-extrabold mt-1">{config.companyInfo.name || BRAND.company}</div>
                 <div>{config.companyInfo.address}</div>
                 <div>TEL: {config.companyInfo.tel}</div>
                 <div>사업자: {config.companyInfo.bizNumber} &middot; 대표: {config.companyInfo.ceo}</div>

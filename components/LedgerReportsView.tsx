@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { BRAND } from '@/lib/brand';
 import { BookOpen, Download } from 'lucide-react';
 import type { LedgerRow } from '@/lib/ledgerRules';
 import { RptPrintModal, type RptRow } from '@/components/RptReportPrint';
@@ -695,7 +696,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   const cleanTel = (v?: string) => (v && /\d/.test(v) ? v.replace(/_/g, '').replace(/^[-)\s]+/, '').trim() : '');
   type RptSpec = { key: string; title: string; rows: RptRow[]; params: Record<string, string> };
   const rptSpecs = useMemo((): RptSpec[] => {
-    const co = company?.name || '동산화스너';
+    const co = company?.name || BRAND.company;
     const base = { FromDate: from, ToDate: to, UserCompanyName: co };
     const one = ((): RptSpec | RptSpec[] | null => {
     switch (section) {

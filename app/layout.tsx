@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BRAND, brandTitle } from '@/lib/brand';
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -13,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "UNIBLE SALE (유니블 세일) - 동산화스너 클라우드 ERP",
-  description: "동산화스너 볼트, 너트, 화스너 전문 차세대 UNIBLE SALE 클라우드 ERP 시스템",
+  title: brandTitle,
+  description: `${BRAND.company} ${BRAND.tagline} 전문 차세대 UNIBLE SALE 클라우드 ERP 시스템`.replace(/\s+/g, " "),
 };
 
 export default function RootLayout({

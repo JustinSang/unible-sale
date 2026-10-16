@@ -4,6 +4,8 @@ import path from "path";
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.resolve(__dirname),
+  // 운영 서버가 .next 를 읽고 있는 동안 빌드가 그 폴더를 덮어쓰지 않도록, 배포 스크립트(scripts/server/deploy.sh)는 NEXT_DIST_DIR=.next-build 로 따로 빌드한다.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // 기본 보안 머리글. 지름길: CSP(Content-Security-Policy)는 인라인 스타일·글꼴 때문에 아직 넣지 않았다.
   async headers() {
     return [{

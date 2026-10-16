@@ -9,7 +9,7 @@ import json, sys, time, collections, shutil
 P = 'data/db.json'
 apply = '--apply' in sys.argv
 d = json.load(open(P, encoding='utf-8'))
-S = d['slips']
+S = [s for s in d['slips'] if not s['id'].startswith('mos-')]  # 미동 수주→매출 전환분(mos-)은 대문자 SALES와 무관
 up = [s for s in S if s['slipType'] == 'SALES']
 low = [s for s in S if s['slipType'] != 'SALES']
 key = lambda s: (s['customerId'], s['slipDate'], s['totalAmount'], tuple(sorted((i['productName'], i['qty']) for i in s['items'])))
@@ -36,7 +36,7 @@ ts = time.strftime('%Y%m%d_%H%M%S')
 shutil.copy2(P, f'data/db.json.bak_dedupe_{ts}')
 json.dump({'when': ts, 'removed': remove, 'unitPriceMerged': merged}, open(f'data/dedupe_removed_{ts}.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 ids = {r['removed']['id'] for r in remove}
-d['slips'] = [s for s in S if s['id'] not in ids]
+d['slips'] = [s for s in d['slips'] if s['id'] not in ids]  # mos- 전표를 지우지 않도록 원본 목록에서 뺀다
 d['deliveries'] = [x for x in d['deliveries'] if x['slipId'] not in ids]
 json.dump(d, open(P, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 print('적용 완료. 남은 전표', len(d['slips']), '| 백업', f'data/db.json.bak_dedupe_{ts}', '| 제거 목록', f'data/dedupe_removed_{ts}.json')

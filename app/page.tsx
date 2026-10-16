@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BRAND } from '@/lib/brand';
 import { Header } from '@/components/Header';
+import { SideRail } from '@/components/SideRail';
 import { SlipEntryView } from '@/components/SlipEntryView';
 import { ProductMasterView } from '@/components/ProductMasterView';
 import { CustomerMasterView } from '@/components/CustomerMasterView';
@@ -622,6 +623,9 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* 오른쪽 아이콘 줄 */}
+      <SideRail currentTab={currentTab} onTabChange={setCurrentTab} />
 
       {/* Print Document Modal */}
       {pinOpen && <AdminPinModal pinHash={config.adminPinHash} onSetPin={handleSetPin} onUnlocked={() => { turnAdmin(true); setPinOpen(false); }} onClose={() => setPinOpen(false)} />}

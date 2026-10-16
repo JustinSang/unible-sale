@@ -3,6 +3,7 @@
 import { isDispatched } from '@/lib/adminPin';
 import React, { useState, useMemo, useDeferredValue, useRef, useEffect } from 'react';
 import { displayProductName } from '@/lib/productName';
+import { HistoryPicker, MyItemsPicker } from '@/components/SlipAssist';
 import {
   Copy,
   Plus,
@@ -606,6 +607,22 @@ export function SlipEntryView({
 
   const handleAddRow = () => {
     setItems(prev => [...prev, blankRow()]);
+  };
+
+  // 거래내역 보기·My품목에서 고른 줄을 전표 끝에 담는다(빈 줄은 정리). 금액은 지금 전표의 세금 방식으로 다시 계산한다.
+  const [assistModal, setAssistModal] = useState<null | 'history' | 'my'>(null);
+  const handleAddAssistItems = (picked: SlipItem[]) => {
+    if (picked.length === 0) return;
+    const fresh = picked.map(it => {
+      const supply = Math.round((it.qty || 0) * (it.unitPrice || 0));
+      const tax = taxOf(supply);
+      return { ...it, id: 'row-' + Math.random().toString(36).slice(2, 11), supplyAmount: supply, taxAmount: tax, totalAmount: supply + tax };
+    });
+    setItems(prev => {
+      const kept = prev.filter(r => r.productName || r.productId);
+      return [...kept, ...fresh];
+    });
+    showToast(`${fresh.length}줄을 전표에 담았습니다.`, 'info');
   };
 
   const handleRemoveRow = (idx: number) => {
@@ -1500,6 +1517,17 @@ export function SlipEntryView({
             >
               <Plus className="w-3.5 h-3.5" /> 행 추가 (Ins)
             </button>
+            <button type="button" onClick={() => setAssistModal('history')}
+              className="px-2.5 py-1 text-xs font-semibold rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">거래내역 보기</button>
+            <button type="button" onClick={() => setAssistModal('my')}
+              className="px-2.5 py-1 text-xs font-semibold rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100">My품목</button>
+            {assistModal === 'history' && (
+              <HistoryPicker slips={slips} customerId={selectedCustomerId} customerName={customers.find(c => c.id === selectedCustomerId)?.name || ''}
+                onAdd={handleAddAssistItems} onClose={() => setAssistModal(null)} />
+            )}
+            {assistModal === 'my' && (
+              <MyItemsPicker currentItem={items[Math.min(focusRow, items.length - 1)]} onAdd={handleAddAssistItems} onClose={() => setAssistModal(null)} />
+            )}
           </div>
         </div>
 

@@ -166,7 +166,8 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   }, [slips, collections, day]);
 
   // 거래처별 일계표 — 원본 DailyBalanceTable 열(Kind·CustomerName·SalesBuyingAmount·ReturnAmount·ReceiptPaymentAmount), 정렬 «Kind, SalesBuyingAmount 내림차순», 합계 «매출계/월매출계».
-  // 집계식은 원본 호출자 추적 실패로 미확인 — 열 의미(매출·반품·수금)에 맞춘 추정 구현이다.
+  // 집계식 근거: 원본 0x790fb0 어셈블리(docs/oksale-parity/일계표_집계식_REA재대조_2026-10-16.md). 매출 쪽=전표종류 1(합계·수금)·3(반품)·9(수금, 할인은 금액에서 뺌), 매입 쪽=2·4·0.
+  // 월계 = 조회 월 1일~조회일. 값이 모두 0인 거래처는 줄을 만들지 않는다. 종류 3·4의 환불(Payment/Receipt) 반영은 실데이터에 없어 생략.
   const dailyByCust = useMemo(() => {
     type R = { id: string; name: string; amt: number; ret: number; rcp: number };
     const build = (side: 'sales' | 'purchase', inRange: (d: string) => boolean) => {
@@ -180,7 +181,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
       });
       collections.forEach(c => {
         if (!inRange(c.date) || c.type !== (side === 'sales' ? 'collection' : 'payment')) return;
-        get(c.customerId, c.customerName).rcp += c.amount;
+        const r = get(c.customerId, c.customerName); r.rcp += c.amount; r.amt -= c.discount || 0;
       });
       const rows = [...m.values()].filter(r => r.amt || r.ret || r.rcp).sort((a, b) => b.amt - a.amt);
       const tot = rows.reduce((t, r) => ({ amt: t.amt + r.amt, ret: t.ret + r.ret, rcp: t.rcp + r.rcp }), { amt: 0, ret: 0, rcp: 0 });

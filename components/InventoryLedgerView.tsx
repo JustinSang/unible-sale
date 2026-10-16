@@ -16,11 +16,13 @@ import {
   Activity
 } from 'lucide-react';
 import type { InventoryLog, Product, OSTheme } from '@/types';
+import { StockCountModal } from '@/components/StockCount';
 
 interface InventoryLedgerViewProps {
   logs: InventoryLog[];
   products: Product[];
   onStockAdjust: (productId: string, adjustQty: number, reason: string) => Promise<void>;
+  onRefresh?: () => Promise<void> | void; // 재고 실사 일괄 조정 뒤 한 번만 다시 불러온다
   osTheme: OSTheme;
 }
 
@@ -28,6 +30,7 @@ export function InventoryLedgerView({
   logs,
   products,
   onStockAdjust,
+  onRefresh,
   osTheme
 }: InventoryLedgerViewProps) {
   const [selectedProductId, setSelectedProductId] = useState<string>('all');
@@ -36,6 +39,7 @@ export function InventoryLedgerView({
 
   // Modal for manual stock adjustment
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState<boolean>(false);
+  const [isCountOpen, setIsCountOpen] = useState<boolean>(false);
   const [targetProductId, setTargetProductId] = useState<string>(products[0]?.id || '');
   const [adjustQty, setAdjustQty] = useState<number>(0);
   const [adjustReason, setAdjustReason] = useState<string>('월말 정기 재고 실사 차이분 조정');
@@ -89,6 +93,7 @@ export function InventoryLedgerView({
 
   return (
     <div className="space-y-4">
+      {isCountOpen && <StockCountModal products={products} onClose={() => setIsCountOpen(false)} onRefresh={onRefresh} />}
       {/* KPI Dashboard Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
@@ -143,6 +148,12 @@ export function InventoryLedgerView({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsCountOpen(true)}
+              className="px-3.5 py-2 text-xs font-bold rounded-lg border border-blue-300 bg-white hover:bg-blue-50 text-blue-700 flex items-center gap-1.5 shadow-sm transition-colors"
+            >
+              재고 실사 (일괄)
+            </button>
             <button
               onClick={() => {
                 setTargetProductId(products[0]?.id || '');

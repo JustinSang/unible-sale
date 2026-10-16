@@ -583,6 +583,7 @@ export default function App() {
                 logs={inventoryLogs}
                 products={products}
                 onStockAdjust={handleStockAdjust}
+                onRefresh={() => fetchFullData(true)}
                 osTheme={osTheme}
               />
             )}

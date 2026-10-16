@@ -797,7 +797,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
               </table>
             </div>
           ))}
-          <p className="text-[11px] text-slate-500">열 구성과 정렬은 원본 일계표를 따랐고, 금액 집계 규칙은 원본에서 확인하지 못해 전표·수금 기록에서 계산했습니다.</p>
+          <p className="text-[11px] text-slate-500">열 구성·정렬·집계(매출/매입, 반품, 수금·지급, 월초~조회일 누계)는 원본 일계표 프로그램의 계산 순서를 따랐고, 전표·수금 기록에서 계산했습니다.</p>
           <table className="w-full border-collapse">
             <thead>
               <tr>

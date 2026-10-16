@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, RefreshCw, Link2 } from 'lucide-react';
 import type { Slip } from '@/types';
+import { normSlipType } from '@/lib/slipType';
 
 // (주)미동이엔씨 파트너 포털 자재마감 «월별 품목 내역» — 발주·입고 줄 단위 원장 + 우리 ERP 매출 대조 + 수주 전표 가져오기.
 // 포털에서 읽은 줄은 scripts/import_midong_orders.py로 적재한다(읽기 전용 수집, 쓰기 없음).
@@ -12,6 +13,12 @@ const th = 'px-2 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 border bor
 const td = 'px-2 py-1 text-xs border border-slate-200';
 const num = `${td} text-right font-mono`;
 const PAGE = 300;
+function downloadRows(name: string, rows: (string | number)[][]) {
+  const esc = (v: string | number) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const blob = new Blob(['\ufeff' + rows.map(r => r.map(esc).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
 
 export function MidongOrdersView({ slips, onSlipsChanged }: { slips: Slip[]; onSlipsChanged?: () => void }) {
   const [lines, setLines] = useState<Line[]>([]);
@@ -102,6 +109,23 @@ export function MidongOrdersView({ slips, onSlipsChanged }: { slips: Slip[]; onS
   const mos = useMemo(() => slips.filter(s => String(s.id).startsWith('mos-')), [slips]);
   const mosYears = useMemo(() => [...new Set(mos.map(s => s.slipDate.slice(0, 4)))].sort().reverse(), [mos]);
   const mosRows = useMemo(() => mos.filter(s => s.slipDate.startsWith(listYear)).sort((a, b) => a.slipDate.localeCompare(b.slipDate)).slice(0, 400), [mos, listYear]);
+  // 수주 ↔ ERP 미동 매출 짝 찾기(2024년 이후 겹침 확인용): 같은 금액이고 일자 차이가 가장 작은(±60일 이내) ERP 매출을 수주마다 하나씩 짝지운다(한 매출은 한 번만).
+  // 짝이 있으면 «이미 매출로 입력된 것으로 보이는» 수주, 없으면 «ERP에 매출이 없는» 수주다. 일자가 포털 입고일 기준이라 정확한 동일 건 증명은 아니다(추정).
+  const match = useMemo(() => {
+    const day = (d: string) => Date.parse(d + 'T00:00:00Z') / 86400000;
+    const erp = slips.filter(s => String(s.customerName).includes('미동') && !String(s.id).startsWith('mos-') && normSlipType(s.slipType) === 'SALES');
+    const byAmt = new Map<number, { id: string; d: number }[]>();
+    erp.forEach(s => { const k = Math.round(Number(s.totalAmount) || 0); byAmt.set(k, [...(byAmt.get(k) || []), { id: s.id, d: day(s.slipDate) }]); });
+    const used = new Set<string>();
+    const orders = mos.filter(s => s.slipType === 'CONTRACT' && s.slipDate >= '2024-01-01').sort((a, b) => a.slipDate.localeCompare(b.slipDate));
+    const matched: Slip[] = [], unmatched: Slip[] = [];
+    orders.forEach(o => {
+      const cand = (byAmt.get(Math.round(Number(o.totalAmount) || 0)) || []).filter(c => !used.has(c.id) && Math.abs(c.d - day(o.slipDate)) <= 60).sort((a, b) => Math.abs(a.d - day(o.slipDate)) - Math.abs(b.d - day(o.slipDate)))[0];
+      if (cand) { used.add(cand.id); matched.push(o); } else unmatched.push(o);
+    });
+    const sum = (r: Slip[]) => r.reduce((a, s) => a + (Number(s.totalAmount) || 0), 0);
+    return { total: orders.length, matched: matched.length, matchedAmt: sum(matched), unmatched, unmatchedAmt: sum(unmatched), erpCount: erp.filter(s => s.slipDate >= '2024-01-01').length, erpLeft: erp.filter(s => s.slipDate >= '2024-01-01' && !used.has(s.id)).length };
+  }, [slips, mos]);
   const mosStat = (y: string) => { const r = mos.filter(s => s.slipDate.startsWith(y)); return { n: r.length, sales: r.filter(s => s.slipType === 'SALES').length, unpaid: r.reduce((a, s) => a + (s.slipType === 'SALES' ? Number(s.unpaidAmount) || 0 : 0), 0), amt: r.reduce((a, s) => a + (Number(s.totalAmount) || 0), 0) }; };
 
   if (state === 'loading') return <p className="text-sm text-slate-500 p-6">미동 발주내역을 불러오는 중…</p>;
@@ -197,6 +221,15 @@ export function MidongOrdersView({ slips, onSlipsChanged }: { slips: Slip[]; onS
           </div>
           <table className="border-collapse"><thead><tr><th className={th}>연도</th><th className={th}>수주 전표</th><th className={th}>매출 전환됨</th><th className={th}>발주 합계</th><th className={th}>미수 잔액</th></tr></thead>
             <tbody>{mosYears.map(y => { const t = mosStat(y); return <tr key={y}><td className={td}>{y}</td><td className={num}>{t.n}</td><td className={num}>{t.sales}</td><td className={num}>{won(t.amt)}</td><td className={num}>{won(t.unpaid)}</td></tr>; })}</tbody></table>
+          <div className="bg-slate-50 border border-slate-200 rounded p-3 space-y-1.5">
+            <p><b>2024년 이후 수주 ↔ ERP 미동 매출 대조</b> <span className="text-slate-500">(같은 금액·일자 ±60일 이내를 한 건씩 짝지움 — 추정이며 확정이 아닙니다)</span></p>
+            <p>수주 <b>{match.total.toLocaleString('ko-KR')}</b>건 중 ERP 매출과 짝이 있음 <b>{match.matched.toLocaleString('ko-KR')}</b>건({won(match.matchedAmt)}원) · <b className="text-amber-700">짝이 없음 {match.unmatched.length.toLocaleString('ko-KR')}건({won(match.unmatchedAmt)}원)</b> · ERP 미동 매출 {match.erpCount.toLocaleString('ko-KR')}건 중 수주와 짝이 없는 매출 {match.erpLeft.toLocaleString('ko-KR')}건</p>
+            <p className="text-slate-600">«짝이 있음»은 이미 ERP에 매출로 입력된 것으로 보이므로 매출로 전환하면 이중계상이 됩니다. «짝이 없음»만 전환 후보입니다(결제 여부는 포털에 없어 정산완료/미수는 대표님이 정하세요).</p>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => { setSel(new Set(match.unmatched.map(s => s.id))); setMsg(`짝이 없는 수주 ${match.unmatched.length}건을 선택했습니다. 아래 «전표별 수정»의 «매출로 전환»으로 먼저 확인하세요.`); }} disabled={match.unmatched.length === 0} className="border border-amber-300 text-amber-800 rounded px-3 py-1 hover:bg-amber-50 font-semibold disabled:opacity-50">짝이 없는 수주 {match.unmatched.length}건 선택</button>
+              <button onClick={() => downloadRows(`미동_수주_ERP매출_짝없음_${new Date().toISOString().slice(0, 10)}.csv`, [['일자', '전표번호', '현장', '금액'], ...match.unmatched.map(s => [s.slipDate, s.slipNo, (s as any).siteName || '', Number(s.totalAmount) || 0])])} className="border border-slate-300 rounded px-3 py-1 hover:bg-slate-100">짝이 없는 수주 CSV</button>
+            </div>
+          </div>
           {cvPrev && (
             <div className="bg-amber-50 border border-amber-200 rounded p-3 space-y-1">
               <p><b>{cvPrev.대상}</b>건 · 금액 <b className="font-mono">{won(cvPrev.금액합계)}</b> · 거래처 미수금 변화 <b className="font-mono">{won(cvPrev.미수금_변화)}</b>원 · 유형 불일치로 건너뜀 {cvPrev.건너뜀_유형불일치}{cvPrev.action === 'toSales' && <> · 같은 기간 ERP 미동 매출 <b className={cvPrev.ERP_기존_미동매출_같은기간 > 0 ? 'text-red-600' : ''}>{cvPrev.ERP_기존_미동매출_같은기간}건</b>{cvPrev.ERP_기존_미동매출_같은기간 > 0 && ' (이중계상 가능)'}</>}</p>

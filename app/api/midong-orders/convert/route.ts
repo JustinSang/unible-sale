@@ -19,7 +19,9 @@ export async function POST(req: Request) {
     targets = targets.filter(s => s.slipType === needType);
     if (action === 'settle') targets = targets.filter(s => (s.unpaidAmount || 0) > 0);
     if (action === 'unsettle') targets = targets.filter(s => (s.unpaidAmount || 0) === 0 && (s.totalAmount || 0) > 0);
-    const erpOverlap = action === 'toSales' ? all.filter(s => String(s.customerName).includes('미동') && !String(s.id).startsWith('mos-') && s.slipType === 'SALES' && inRange(s)).length : 0;
+    // 같은 기간 ERP 미동 매출 건수(이중계상 경고용). 이관 전표 유형은 소문자 'sales'가 섞여 있어 대문자로 맞춰 비교하고, 전표를 골라 보낸 경우엔 고른 전표들의 일자 범위를 쓴다.
+    const dates = targets.map(s => s.slipDate).sort(), lo = from || dates[0], hi = to || dates[dates.length - 1];
+    const erpOverlap = action === 'toSales' && targets.length ? all.filter(s => String(s.customerName).includes('미동') && !String(s.id).startsWith('mos-') && String(s.slipType).toUpperCase() === 'SALES' && s.slipDate >= lo && s.slipDate <= hi).length : 0;
     const plan = targets.map(s => {
       const total = Number(s.totalAmount) || 0, oldUnpaid = Number(s.unpaidAmount) || 0;
       let paid = Number(s.paidAmount) || 0, unpaid = oldUnpaid, slipType = s.slipType;

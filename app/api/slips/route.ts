@@ -4,6 +4,7 @@ import { shiftPrices } from '@/lib/priceHistory';
 import { rotatePurchase } from '@/lib/purchaseHistory';
 import crypto from 'crypto';
 import { supabase } from '@/lib/supabase';
+import { audit } from '@/lib/audit';
 
 export async function GET() {
   const { data, error } = await supabase.from('slips').select('*').order('slipDate', { ascending: false });
@@ -191,6 +192,7 @@ export async function POST(req: Request) {
       if (delError) console.error('deliveries insert failed:', delError.message);
     }
 
+    await audit('create', 'slip', slipWithCrypto.id, `전표 저장: ${slipWithCrypto.slipNo} ${slipWithCrypto.customerName} ${Number(slipWithCrypto.totalAmount || 0).toLocaleString('ko-KR')}원`, { slipType: slipWithCrypto.slipType, items: items.length, paid: slipWithCrypto.paidAmount, unpaid: slipWithCrypto.unpaidAmount });
     return NextResponse.json(slipWithCrypto, { status: 201 });
   } catch (error: any) {
     console.error('Slip API Error:', error);

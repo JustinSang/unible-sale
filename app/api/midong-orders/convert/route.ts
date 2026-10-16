@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { fetchAll } from '@/lib/loadAll';
+import { audit } from '@/lib/audit';
 
 // 미동 수주 전표(id `mos-…`)의 매출 전환·정산 상태 변경.
 // action: toSales(수주→매출, settle 'paid'|'unpaid') · toContract(매출→수주로 되돌리기) · settle(미수→정산완료) · unsettle(정산완료→미수)
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
       const { data: c } = await supabase.from('customers').select('receivables').eq('id', cid).maybeSingle();
       await supabase.from('customers').update({ receivables: (c?.receivables || 0) + delta }).eq('id', cid);
     }
+    if (plan.length) await audit('convert', 'slip', 'mos-batch', `미동 전표 ${action} ${plan.length}건 (${Number(sum.금액합계).toLocaleString('ko-KR')}원)`, { action, settle: settle ?? null, 건수: plan.length, 금액합계: sum.금액합계, 미수금_변화: sum.미수금_변화, 전표: plan.slice(0, 500).map(p => p.s.id) });
     return NextResponse.json({ done: true, ...sum });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || '전환 실패' }, { status: 500 });

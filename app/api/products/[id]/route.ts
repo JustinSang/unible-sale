@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { audit, diffFields } from '@/lib/audit';
 import type { Product } from '@/types';
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -7,8 +8,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const data: Partial<Product> = await req.json();
     const { id } = await params;
 
+    const { data: before } = await supabase.from('products').select('*').eq('id', id).maybeSingle();
     const { error } = await supabase.from('products').update(data).eq('id', id);
     if (error) throw new Error(error.message);
+    const diff = diffFields(before, data as Record<string, any>);
+    if (Object.keys(diff).length) await audit('update', 'product', id, `품목 수정: ${before?.name ?? id} (${Object.keys(diff).join(', ')})`, diff);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -19,8 +23,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    const { data: before } = await supabase.from('products').select('*').eq('id', id).maybeSingle();
     const { error } = await supabase.from('products').delete().eq('id', id);
     if (error) throw new Error(error.message);
+    await audit('delete', 'product', id, `품목 삭제: ${before?.name ?? id}`, before);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

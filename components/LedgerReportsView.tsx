@@ -19,7 +19,7 @@ interface LedgerReportsViewProps {
   osTheme: OSTheme;
 }
 
-type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query' | 'rcpquery' | 'subulbook' | 'subulsum' | 'sitebook' | 'rcpsum' | 'billbook' | 'prodsum' | 'slipstatus' | 'dailydetail' | 'taxbook' | 'prodlist' | 'custlist' | 'profit';
+type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query' | 'rcpquery' | 'subulbook' | 'subulsum' | 'sitebook' | 'rcpsum' | 'billbook' | 'prodsum' | 'slipstatus' | 'dailydetail' | 'taxbook' | 'prodlist' | 'custlist' | 'profit' | 'audit';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'daily', label: '일계표' },
@@ -43,6 +43,7 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'billbook', label: '어음 장부' },
   { id: 'prodsum', label: '품목별 집계' },
   { id: 'profit', label: '이익 집계' },
+  { id: 'audit', label: '변경 이력' },
   { id: 'slipstatus', label: '전표 현황' },
   { id: 'taxbook', label: '세금계산서 장부' },
   { id: 'prodlist', label: '품목·재고 현황' },
@@ -499,6 +500,16 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   // 원가는 품목 마스터의 매입가(costPrice)를 쓰고, 0·없음이면 «원가 미입력»으로 따로 모아 이익에 넣지 않는다(이익이 부풀려 보이지 않게). 매출반품은 음수로 뺀다.
   // 지름길: 원가는 «현재» 매입가라 과거 매입가 변동이 반영되지 않는다(전표 줄별 원가 기록이 없음).
   const [profitBy, setProfitBy] = useState<'cust' | 'item'>('cust');
+  // 변경 이력(audit_log): 열 때마다 서버에서 최근 300건을 읽는다.
+  const [auditRows, setAuditRows] = useState<{ id: string; at: string; action: string; entity: string; entityId: string; summary: string; detail: unknown }[]>([]);
+  const [auditState, setAuditState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [auditQ, setAuditQ] = useState('');
+  const [auditOpen, setAuditOpen] = useState<string>('');
+  useEffect(() => {
+    if (section !== 'audit') return;
+    setAuditState('loading');
+    fetch('/api/audit?limit=300').then(r => r.json()).then(d => { if (!Array.isArray(d)) throw new Error(d?.error || '읽기 실패'); setAuditRows(d.sort((a, b) => String(b.at).localeCompare(String(a.at)))); setAuditState('idle'); }).catch(() => setAuditState('error'));
+  }, [section]);
   const profit = useMemo(() => {
     const byId = new Map(products.map(pr => [pr.id, pr.costPrice || 0]));
     const byName = new Map(products.map(pr => [`${pr.name}|${pr.spec || ''}`, pr.costPrice || 0]));
@@ -1399,6 +1410,30 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
             <button onClick={() => downloadCsv(`어음장부_${from}_${to}.csv`, [['만기일', '구분', '어음번호', '거래처', '은행', '상태', '금액'], ...billBook.rows, ['합계', '', '', '', '', '', billBook.total]])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
           </div>
           <ReportTable head={['만기일', '구분', '어음번호', '거래처', '은행', '상태', '금액']} rows={billBook.rows} foot={['합계', '', '', '', '', '', billBook.total]} numFrom={6} />
+        </div>
+      )}
+
+      {section === 'audit' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <input value={auditQ} onChange={e => setAuditQ(e.target.value)} placeholder="검색(전표번호·거래처·품명)" className="border border-slate-300 rounded px-2 py-1 w-56" />
+            <span className="text-slate-500">최근 300건 · 전표·품목·거래처의 저장/수정/삭제와 미동 전환이 남습니다. 삭제한 것은 «상세»에 전체 내용이 남습니다.</span>
+          </div>
+          {auditState === 'loading' && <p className="text-xs text-slate-500">불러오는 중…</p>}
+          {auditState === 'error' && <p className="text-xs text-red-600">변경 이력을 읽지 못했습니다(DB에 audit_log 표가 없을 수 있음 — scripts/supabase_schema.sql 실행).</p>}
+          <div className="overflow-x-auto"><table className="w-full border-collapse text-xs">
+            <thead><tr><th className={th}>일시</th><th className={th}>구분</th><th className={th}>대상</th><th className={th}>내용</th><th className={th}>상세</th></tr></thead>
+            <tbody>
+              {auditRows.filter(r => !auditQ.trim() || `${r.summary} ${r.entityId}`.includes(auditQ.trim())).slice(0, 300).map(r => (
+                <React.Fragment key={r.id}>
+                  <tr><td className={td}>{new Date(r.at).toLocaleString('ko-KR', { hour12: false })}</td><td className={td}>{({ create: '저장', update: '수정', delete: '삭제', convert: '전환' } as Record<string, string>)[r.action] || r.action}</td><td className={td}>{({ slip: '전표', product: '품목', customer: '거래처' } as Record<string, string>)[r.entity] || r.entity}</td><td className={td}>{r.summary}</td>
+                    <td className={td}>{r.detail ? <button className="text-blue-600 underline" onClick={() => setAuditOpen(auditOpen === r.id ? '' : r.id)}>{auditOpen === r.id ? '접기' : '보기'}</button> : ''}</td></tr>
+                  {auditOpen === r.id && <tr><td className={td} colSpan={5}><pre className="whitespace-pre-wrap break-all text-[11px] max-h-60 overflow-auto">{JSON.stringify(r.detail, null, 1)}</pre></td></tr>}
+                </React.Fragment>
+              ))}
+              {auditState === 'idle' && auditRows.length === 0 && <tr><td className={td} colSpan={5}>아직 기록이 없습니다.</td></tr>}
+            </tbody>
+          </table></div>
         </div>
       )}
 

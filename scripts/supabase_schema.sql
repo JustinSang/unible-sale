@@ -226,3 +226,13 @@ alter table public.midong_orders add column if not exists "inAmt" numeric;
 alter table public.midong_orders add column if not exists "inDate" text;
 alter table public.midong_orders add column if not exists "closeDate" text;
 alter table public.midong_orders disable row level security;
+
+-- 변경 이력(lib/audit.ts) — 전표·품목·거래처의 생성·수정·삭제, 미동 전환. 삭제 전표·품목·거래처는 detail에 전체 내용이 남는다.
+create table if not exists public.audit_log ("id" text primary key);
+alter table public.audit_log add column if not exists "at" text;
+alter table public.audit_log add column if not exists "action" text;
+alter table public.audit_log add column if not exists "entity" text;
+alter table public.audit_log add column if not exists "entityId" text;
+alter table public.audit_log add column if not exists "summary" text;
+alter table public.audit_log add column if not exists "actor" text;
+alter table public.audit_log add column if not exists "detail" jsonb;

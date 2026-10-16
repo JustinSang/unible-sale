@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { audit } from '@/lib/audit';
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -33,6 +34,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     const { error } = await supabase.from('slips').delete().eq('id', id);
     if (error) throw new Error(error.message);
 
+    await audit('delete', 'slip', id, `전표 삭제: ${slip.slipNo} ${slip.customerName} ${Number(slip.totalAmount || 0).toLocaleString('ko-KR')}원`, slip); // 전체 내용을 남겨 복원 가능
     return NextResponse.json({ success: true, id });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || '전표 삭제 실패' }, { status: 500 });

@@ -6,7 +6,18 @@ import { audit } from '@/lib/audit';
 export async function POST(req: Request) {
   try {
     const data = await req.json();
-    const { productId, changeType, changeQty, reason } = data;
+    let { productId, changeType, changeQty } = data;
+    const { reason, adjustQty } = data;
+    // 재고 조정 화면은 부호 있는 수량(adjustQty: +늘림/−줄임)을 보낸다 — 예전에는 이 값을 읽지 않아 재고가 null로 망가졌다(2026-10-17 발견).
+    if (changeQty === undefined && adjustQty !== undefined) {
+      const q = Number(adjustQty);
+      changeType = q >= 0 ? 'adjust_plus' : 'adjust_minus';
+      changeQty = Math.abs(q);
+    }
+    if (!productId || !Number.isFinite(Number(changeQty)) || !['adjust_plus', 'adjust_minus', 'in', 'out', 'return'].includes(changeType)) {
+      return NextResponse.json({ error: '조정할 품목·수량·종류가 올바르지 않습니다.' }, { status: 400 });
+    }
+    changeQty = Number(changeQty);
 
     const { data: product } = await supabase.from('products').select('name, spec, currentStock').eq('id', productId).single();
     if (!product) throw new Error('Product not found');

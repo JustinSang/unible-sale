@@ -19,7 +19,7 @@ interface LedgerReportsViewProps {
   osTheme: OSTheme;
 }
 
-type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query' | 'rcpquery' | 'subulbook' | 'subulsum' | 'sitebook' | 'rcpsum' | 'billbook' | 'prodsum' | 'slipstatus' | 'dailydetail' | 'taxbook' | 'prodlist' | 'custlist';
+type Section = 'daily' | 'cashbook' | 'period' | 'receivable' | 'ledger' | 'stockflow' | 'vat' | 'pricelist' | 'yearend' | 'phonebook' | 'custsum' | 'query' | 'rcpquery' | 'subulbook' | 'subulsum' | 'sitebook' | 'rcpsum' | 'billbook' | 'prodsum' | 'slipstatus' | 'dailydetail' | 'taxbook' | 'prodlist' | 'custlist' | 'profit';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'daily', label: '일계표' },
@@ -42,6 +42,7 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'rcpsum', label: '수금·지급 집계' },
   { id: 'billbook', label: '어음 장부' },
   { id: 'prodsum', label: '품목별 집계' },
+  { id: 'profit', label: '이익 집계' },
   { id: 'slipstatus', label: '전표 현황' },
   { id: 'taxbook', label: '세금계산서 장부' },
   { id: 'prodlist', label: '품목·재고 현황' },
@@ -494,6 +495,36 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   }, [bills, bbKind, from, to]);
 
   // 상품매입매출집계표(원본 SubulSummaryAmount): 품명·단위·규격 — 매입·반입·매출·반출 수량과 금액
+  // 이익 집계(이카운트의 «이익관리»에 해당하는 제안 기능, 원본 오케이세일에는 없는 집계): 기간 매출 품목줄의 매출액 − 원가(수량 × 품목 매입가).
+  // 원가는 품목 마스터의 매입가(costPrice)를 쓰고, 0·없음이면 «원가 미입력»으로 따로 모아 이익에 넣지 않는다(이익이 부풀려 보이지 않게). 매출반품은 음수로 뺀다.
+  // 지름길: 원가는 «현재» 매입가라 과거 매입가 변동이 반영되지 않는다(전표 줄별 원가 기록이 없음).
+  const [profitBy, setProfitBy] = useState<'cust' | 'item'>('cust');
+  const profit = useMemo(() => {
+    const byId = new Map(products.map(pr => [pr.id, pr.costPrice || 0]));
+    const byName = new Map(products.map(pr => [`${pr.name}|${pr.spec || ''}`, pr.costPrice || 0]));
+    type A = { name: string; sales: number; costBase: number; cost: number; noCost: number };
+    const m = new Map<string, A>();
+    slips.forEach(sl => {
+      if (sl.slipDate < from || sl.slipDate > to) return;
+      const k = kindOf(sl); if (k !== 'sales' && k !== 'salesReturn') return;
+      const sign = k === 'sales' ? 1 : -1;
+      (sl.items || []).forEach(it => {
+        const key = profitBy === 'cust' ? sl.customerId : `${it.productName}|${it.spec || ''}`;
+        const r = m.get(key) || { name: profitBy === 'cust' ? sl.customerName : `${it.productName}${it.spec ? ' ' + it.spec : ''}`, sales: 0, costBase: 0, cost: 0, noCost: 0 };
+        const amt = sign * (it.supplyAmount || 0);
+        const c0 = (it.productId && byId.get(it.productId)) || byName.get(`${it.productName}|${it.spec || ''}`) || 0;
+        r.sales += amt;
+        if (c0 > 0) { r.costBase += amt; r.cost += sign * c0 * (it.qty || 0); } else r.noCost += amt;
+        m.set(key, r);
+      });
+    });
+    const rows = [...m.values()].sort((a, b) => (b.costBase - b.cost) - (a.costBase - a.cost));
+    const pct = (p: number, base: number) => (base ? `${((p / base) * 100).toFixed(1)}%` : '-');
+    const line = (r: A) => [r.name, r.sales, r.cost, r.costBase - r.cost, pct(r.costBase - r.cost, r.costBase), r.noCost] as (string | number)[];
+    const tot = rows.reduce((t, r) => ({ name: '', sales: t.sales + r.sales, costBase: t.costBase + r.costBase, cost: t.cost + r.cost, noCost: t.noCost + r.noCost }), { name: '', sales: 0, costBase: 0, cost: 0, noCost: 0 });
+    return { rows: rows.map(line), foot: ['합계', tot.sales, tot.cost, tot.costBase - tot.cost, pct(tot.costBase - tot.cost, tot.costBase), tot.noCost] as (string | number)[] };
+  }, [slips, products, from, to, profitBy]);
+
   const prodSum = useMemo(() => {
     type A = { name: string; spec: string; unit: string; q: [number, number, number, number]; a: [number, number, number, number] };
     const m = new Map<string, A>();
@@ -1368,6 +1399,23 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
             <button onClick={() => downloadCsv(`어음장부_${from}_${to}.csv`, [['만기일', '구분', '어음번호', '거래처', '은행', '상태', '금액'], ...billBook.rows, ['합계', '', '', '', '', '', billBook.total]])} className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"><Download className="w-3 h-3" /> CSV</button>
           </div>
           <ReportTable head={['만기일', '구분', '어음번호', '거래처', '은행', '상태', '금액']} rows={billBook.rows} foot={['합계', '', '', '', '', '', billBook.total]} numFrom={6} />
+        </div>
+      )}
+
+      {section === 'profit' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="font-semibold">기간</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            <span>~</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border border-slate-300 rounded px-2 py-1" />
+            {([['cust', '거래처별'], ['item', '품목별']] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setProfitBy(k)} className={`px-3 py-1 rounded border font-semibold ${profitBy === k ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{l}</button>
+            ))}
+            <button onClick={() => downloadCsv(`이익집계_${profitBy === 'cust' ? '거래처별' : '품목별'}_${from}_${to}.csv`, [[profitBy === 'cust' ? '거래처' : '품목', '매출액', '원가', '이익', '이익률', '원가 미입력 매출액'], ...profit.rows, profit.foot])} className="ml-auto border border-slate-300 rounded px-2 py-1 hover:bg-slate-50">CSV</button>
+          </div>
+          <ReportTable head={[profitBy === 'cust' ? '거래처' : '품목', '매출액', '원가', '이익', '이익률', '원가 미입력 매출액']} rows={profit.rows} foot={profit.foot} numFrom={1} />
+          <p className="text-[11px] text-slate-500">이익 = 매출액 − (수량 × 품목 매입가). 매입가가 비어 있는 품목은 «원가 미입력 매출액»에 따로 모으고 이익·이익률에서 뺍니다(이익이 크게 보이지 않도록). 매출반품은 음수로 반영, 금액은 공급가 기준, 원가는 현재 품목 매입가입니다(과거 매입가 변동은 반영 안 됨).</p>
         </div>
       )}
 

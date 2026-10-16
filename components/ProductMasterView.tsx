@@ -52,6 +52,7 @@ export function ProductMasterView({
     barcode: '', supplier: '', memo: ''
   });
 
+  const [showInactive, setShowInactive] = useState<boolean>(false); // «사용중단 포함» 보기
   const categories = useMemo(() => {
     const set = new Set<string>();
     products.forEach(p => { if (p.category) set.add(p.category); });
@@ -61,6 +62,7 @@ export function ProductMasterView({
   const filteredProducts = useMemo(() => {
     // 원본: 품명-규격 사전순으로 자동 정렬해 보여준다(상품코드 관리 매뉴얼). 다른명칭·바코드로도 찾는다.
     return products.filter(p => {
+      if (p.inactive && !showInactive) return false;
       const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
       if (!matchesCategory) return false;
       if (!deferredSearchTerm.trim()) return true;
@@ -71,7 +73,7 @@ export function ProductMasterView({
         (p.nickName && p.nickName.toLowerCase().includes(q)) || (p.barcode && p.barcode.toLowerCase().includes(q))
       );
     }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko') || (a.spec || '').localeCompare(b.spec || '', 'ko', { numeric: true }));
-  }, [products, deferredSearchTerm, selectedCategory]);
+  }, [products, deferredSearchTerm, selectedCategory, showInactive]);
 
   const kpiData = useMemo(() => {
     let shortageCount = 0; let totalMarginSum = 0; let marginCount = 0;
@@ -358,6 +360,10 @@ export function ProductMasterView({
               );
             })}
           </div>
+          <label className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap select-none">
+            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+            사용중단 포함{products.some(p => p.inactive) ? ` (${products.filter(p => p.inactive).length})` : ''}
+          </label>
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input ref={searchRef} type="text" placeholder="품명/다른명칭/코드/규격/매입처 검색... (F2)" value={searchTerm} onChange={e => handleSearchChange(e.target.value)} className="pl-8 pr-8 py-1.5 border border-slate-300 rounded-lg bg-white w-64 text-xs focus:ring-1 focus:ring-blue-500 transition-colors" />
@@ -403,7 +409,7 @@ export function ProductMasterView({
                   const margin = p.sellingPrice > 0 ? Math.round(((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100) : 0;
                   const isShortage = p.currentStock <= p.safeStock;
                   return (
-                    <tr key={p.id} role="row" className={`hover:bg-blue-50/40 transition-colors whitespace-nowrap ${isShortage ? 'border-l-[3px] border-l-rose-400' : ''}`}>
+                    <tr key={p.id} role="row" className={`hover:bg-blue-50/40 transition-colors whitespace-nowrap ${p.inactive ? 'opacity-50 ' : ''}${isShortage ? 'border-l-[3px] border-l-rose-400' : ''}`}>
                       <td className="py-2.5 px-3 font-mono font-bold text-slate-700">{p.code}</td>
                       <td className="py-2.5 px-3">
                         <div className="flex flex-col gap-0.5">
@@ -449,6 +455,7 @@ export function ProductMasterView({
                           <button onClick={() => handleOpenCopy(p)} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="품목 복사 (F5) — 같은 품명에 다른 규격 등록"><Copy className="w-3.5 h-3.5" /></button>
                           <button onClick={() => handleGroupRename(p)} className="px-1.5 py-1 text-[10px] font-bold text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors" title="집단 수정 (F12) — 같은 품명 전체의 품명 변경">집단수정</button>
                           <button onClick={() => handleGroupCopy(p)} className="px-1.5 py-1 text-[10px] font-bold text-slate-500 hover:text-violet-700 hover:bg-violet-50 rounded-lg transition-colors" title="집단 복사 (F11) — 같은 품명 전체를 새 품명으로 복사">집단복사</button>
+                          <button onClick={() => onUpdateProduct(p.id, { inactive: !p.inactive })} className="px-1 text-[10px] font-semibold text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded" title={p.inactive ? '다시 사용하도록 되돌립니다' : '삭제하지 않고 목록·전표 검색에서 숨깁니다(과거 전표는 그대로)'}>{p.inactive ? '재사용' : '사용중단'}</button>
                           <button onClick={() => handleDelete(p)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="품목 삭제"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>

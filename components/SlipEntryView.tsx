@@ -282,13 +282,13 @@ export function SlipEntryView({
   const deferredSiteSearchFilter = useDeferredValue(siteSearchFilter);
 
   const filteredCustomersList = useMemo(() => {
-    if (!deferredCustomerSearchFilter.trim()) return customers;
+    if (!deferredCustomerSearchFilter.trim()) return customers.filter(c => !c.inactive);
     const q = deferredCustomerSearchFilter.toLowerCase();
-    return customers.filter(c =>
+    return customers.filter(c => !c.inactive && (
       c.name.toLowerCase().includes(q) ||
       c.code.toLowerCase().includes(q) ||
       (c.sites && c.sites.some(s => s.siteName.toLowerCase().includes(q)))
-    );
+    ));
   }, [customers, deferredCustomerSearchFilter]);
 
   // 거래처 찾기(원본): 두 글자쯤 입력하고 Enter → 목록 → ↑↓·Enter로 선택, 목록에 없으면 Insert로 바로 등록.
@@ -321,11 +321,12 @@ export function SlipEntryView({
 
   const searchResults = useMemo(() => {
     if (!deferredProductSearchKeyword.trim()) {
-      return products.slice(0, 50);
+      return products.filter(p => !p.inactive).slice(0, 50);
     }
     const q = deferredProductSearchKeyword.toLowerCase();
     const matches: Product[] = [];
     for (const p of products) {
+      if (p.inactive) continue;
       if (
         p.name.toLowerCase().includes(q) ||
         p.code.toLowerCase().includes(q) ||

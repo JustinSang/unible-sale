@@ -33,6 +33,7 @@ export interface Product {
   category3?: string;    // 카테고리 소분류
   barcode?: string;
   nickName?: string;     // 다른명칭(약어·관리코드, 원본 NicName)
+  inactive?: boolean;    // 사용중단(삭제 대신 숨김 — 목록 기본 제외, 전표 입력 검색 제외, 과거 전표는 그대로)
   supplier?: string;
   memo?: string;
 }
@@ -50,6 +51,7 @@ export interface CustomerSite {
 
 export interface Customer {
   id: string;
+  inactive?: boolean;    // 사용중단(삭제 대신 숨김 — 목록 기본 제외, 전표 입력 검색 제외, 과거 전표는 그대로)
   code: string;
   name: string;
   bizNumber: string;

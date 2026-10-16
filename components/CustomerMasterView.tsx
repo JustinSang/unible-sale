@@ -40,6 +40,7 @@ export function CustomerMasterView({
   osTheme
 }: CustomerMasterViewProps) {
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [showInactive, setShowInactive] = useState<boolean>(false); // «사용중단 포함» 보기
   // 초기이월금(원본: «머니플러스 사용 이전의 금액, 받을 금액 +·줄 금액 −») — 장부·수금지급 화면의 기초잔액과 같은 값을 system_config에 보관한다.
   const [opening, setOpening] = useState<{ asOf: string; byCustomer: Record<string, number> }>({ asOf: '', byCustomer: {} });
   const [openingInput, setOpeningInput] = useState<string>('');
@@ -167,6 +168,7 @@ export function CustomerMasterView({
 
   const filteredCustomers = useMemo(() => {
     return customers.filter(c => {
+      if (c.inactive && !showInactive) return false;
       if (!deferredSearchTerm.trim()) return true;
       const q = deferredSearchTerm.toLowerCase();
       const matchSite = c.sites?.some(s => s.siteName.toLowerCase().includes(q) || (s.manager && s.manager.toLowerCase().includes(q)));
@@ -180,7 +182,7 @@ export function CustomerMasterView({
         matchSite
       );
     });
-  }, [customers, deferredSearchTerm]);
+  }, [customers, deferredSearchTerm, showInactive]);
 
   // KPI Calculations
   const kpiData = useMemo(() => {
@@ -428,6 +430,10 @@ export function CustomerMasterView({
           </div>
 
           <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap select-none">
+              <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+              사용중단 포함{customers.some(c => c.inactive) ? ` (${customers.filter(c => c.inactive).length})` : ''}
+            </label>
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input ref={searchRef}
@@ -493,7 +499,7 @@ export function CustomerMasterView({
                 </tr>
               ) : (
                 paginatedCustomers.map(c => (
-                  <tr key={c.id} role="row" className={`hover:bg-blue-50/40 transition-colors whitespace-nowrap ${(c.receivables || 0) >= 5000000 ? 'border-l-[3px] border-l-rose-400' : ''}`}>
+                  <tr key={c.id} role="row" className={`hover:bg-blue-50/40 transition-colors whitespace-nowrap ${c.inactive ? 'opacity-50 ' : ''}${(c.receivables || 0) >= 5000000 ? 'border-l-[3px] border-l-rose-400' : ''}`}>
                     <td className="py-2 px-3 font-mono font-bold text-slate-700">{c.code}</td>
                     <td className="py-2 px-3 font-semibold text-slate-900">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -552,6 +558,13 @@ export function CustomerMasterView({
                           title="거래처 수정"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => onUpdateCustomer(c.id, { inactive: !c.inactive })}
+                          className="px-1 text-[10px] font-semibold text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded"
+                          title={c.inactive ? '다시 사용하도록 되돌립니다' : '삭제하지 않고 목록·전표 검색에서 숨깁니다(과거 전표는 그대로)'}
+                        >
+                          {c.inactive ? '재사용' : '사용중단'}
                         </button>
                         <button
                           onClick={() => handleDelete(c)}

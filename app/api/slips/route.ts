@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { roundBy, normalizeCalc } from '@/lib/calcRules';
 import { openingConfig, ledgerBalance, syncReceivables } from '@/lib/receivables';
 import { audit } from '@/lib/audit';
+import { applyOldSlipEffects } from '@/lib/slipEdit';
 
 export async function GET() {
   const { data, error } = await supabase.from('slips').select('*').order('slipDate', { ascending: false });
@@ -27,11 +28,13 @@ export async function POST(req: Request) {
     }
 
     const slipId = slipData.id || `s-${Date.now()}`;
+    // 이미 저장된 전표를 고쳐 저장하는 경우(화면의 «데이터 업데이트 저장»): 옛 전표를 기억해 두고 아래에서 영향을 되돌린 뒤 새 내용으로 바꾼다.
+    const { data: existing } = slipData.id ? await supabase.from('slips').select('*').eq('id', slipData.id).maybeSingle() : { data: null };
     const now = new Date();
     const dateStr = slipData.slipDate || now.toISOString().slice(0, 10);
     
     // Auto-generate slipNo if missing
-    let slipNo = slipData.slipNo;
+    let slipNo = slipData.slipNo || existing?.slipNo;
     if (!slipNo) {
       const { count } = await supabase.from('slips').select('*', { count: 'exact', head: true });
       slipNo = `S${dateStr.replace(/-/g, '')}-${String((count || 0) + 1).padStart(4, '0')}`;
@@ -66,6 +69,16 @@ export async function POST(req: Request) {
     const paidAmount = Number(slipData.paidAmount) || 0;
     const unpaidAmount = Math.max(0, totalAmount - paidAmount);
 
+    // 수정 저장: 옛 전표의 재고·미수금·배송 요청 영향을 먼저 되돌린다(아래 «전잔액»이 옛 전표를 빼고 계산되도록). 새 내용 저장이 실패하면 아래에서 원상복구한다.
+    const editCfg = existing ? await openingConfig() : null;
+    const oldDeliveries = existing ? ((await supabase.from('deliveries').select('*').eq('slipId', slipId)).data || []) : [];
+    if (existing) {
+      await applyOldSlipEffects(existing, editCfg, 1);
+      await supabase.from('deliveries').delete().eq('slipId', slipId);
+      const { error: delOld } = await supabase.from('slips').delete().eq('id', slipId);
+      if (delOld) { await applyOldSlipEffects(existing, editCfg, -1); throw new Error(delOld.message); }
+    }
+
     // Get customer prevReceivables
     const { data: customer } = await supabase.from('customers').select('name, receivables').eq('id', slipData.customerId).single();
     // 장부 방식(초기이월금 기준일이 설정된 경우)이면 «전잔액»을 장부 잔액으로, 아니면 예전처럼 거래처 미수금 칸으로
@@ -94,13 +107,22 @@ export async function POST(req: Request) {
       prevReceivables,
       memo: slipData.memo || '',
       ...(slipData.progressStatus ? { progressStatus: slipData.progressStatus } : {}), // 수정 저장 때 진행상태를 잃지 않게
-      createdAt: now.toISOString(),
-      deliveryStatus: deliveryInfo?.required ? 'pending' : (slipData.deliveryStatus || 'none')
+      createdAt: existing?.createdAt || now.toISOString(),
+      deliveryStatus: deliveryInfo?.required ? 'pending' : (slipData.deliveryStatus || existing?.deliveryStatus || 'none'),
+      ...(existing?.dispatchStatus ? { dispatchStatus: existing.dispatchStatus } : {}) // 발송 이력은 수정해도 남긴다
     };
 
     // 1. Save Slip (DB에는 기본 정보만 저장 - 스키마 에러 방지)
     const { error: slipError } = await supabase.from('slips').insert(newSlip);
-    if (slipError) throw new Error(slipError.message);
+    if (slipError) {
+      if (existing) { // 수정 저장 실패 → 옛 전표와 그 영향을 그대로 되살린다
+        await supabase.from('slips').insert(existing);
+        if (oldDeliveries.length) await supabase.from('deliveries').insert(oldDeliveries);
+        await applyOldSlipEffects(existing, editCfg, -1);
+        if (editCfg) await syncReceivables(String(existing.customerId || ''), editCfg);
+      }
+      throw new Error(slipError.message);
+    }
 
     // Crypto Injection (UI 표출용 전자서명 및 TSA 주입)
     const hashData = `${newSlip.slipNo}-${newSlip.slipDate}-${newSlip.customerId}-${newSlip.totalAmount}-${newSlip.createdAt}`;

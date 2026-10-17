@@ -195,6 +195,7 @@ export interface SystemConfig {
   cloudSyncEnabled: boolean;
   syncIntervalSec: number;
   calc?: { amt: 'R' | 'F' | 'C'; vat: 'R' | 'F' | 'C' }; // 금액 반올림 설정(공급가액·부가세). 없으면 둘 다 반올림(R)=기존 동작
+  options?: Partial<import('@/lib/envOptions').EnvOptions>; // 사용자 환경설정(단가·수량 소수점, 부가세율, 여신한도 경고, 매출·매입가 자동저장)
   adminPinHash?: string; // 관리자 모드 PIN의 SHA-256(발송된 전표 수정·삭제 허용)
   openingBalances?: { asOf: string; byCustomer: Record<string, number> }; // 기초 미수(+)·미지급(−) 잔액 — 도입 시점 입력
   lastSyncTime: string;

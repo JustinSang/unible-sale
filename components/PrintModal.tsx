@@ -1136,7 +1136,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
                   <span>{slip.totalSupplyAmount.toLocaleString('ko-KR')}원</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>부가세(10%):</span>
+                  <span>부가세:</span>
                   <span>{slip.totalTaxAmount.toLocaleString('ko-KR')}원</span>
                 </div>
                 <div className="flex justify-between text-sm font-black border-t pt-1">

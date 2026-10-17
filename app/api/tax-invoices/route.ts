@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { audit } from '@/lib/audit';
+import { normalizeOptions } from '@/lib/envOptions';
 import type { TaxInvoice } from '@/types';
 
 export async function GET() {
@@ -14,7 +15,8 @@ export async function POST(req: Request) {
   try {
     const body: Partial<TaxInvoice> = await req.json();
     const supplyAmount = Number(body.supplyAmount) || 0;
-    const taxAmount = Number(body.taxAmount) || Math.round(supplyAmount * 0.1);
+    const { data: cfgRow } = await supabase.from('system_config').select('config').eq('id', 'default').maybeSingle();
+    const taxAmount = Number(body.taxAmount) || Math.round(supplyAmount * (normalizeOptions(cfgRow?.config?.options).vatRate / 100));
     const totalAmount = supplyAmount + taxAmount;
 
     const newTax: TaxInvoice = {

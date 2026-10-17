@@ -429,16 +429,14 @@ export default function App() {
   };
 
   // Config Actions
+  // 환경설정 탭 저장. 서버는 PUT만 받는다(예전 POST는 405로 조용히 실패했다). 화면이 들고 있던 옛 값이 다른 곳에서 바뀐 설정(기초잔액·관리자 PIN 등)을 덮어쓰지 않도록, 지금 저장된 설정을 읽어 이 탭이 관리하는 항목만 합친다.
   const handleUpdateConfig = async (newCfg: Partial<SystemConfig>) => {
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newCfg)
-    });
-    if (res.ok) {
-      const saved = await res.json();
-      setConfig(saved);
-    }
+    const MINE = ['dbPath', 'reportPath', 'printers', 'cloudSyncEnabled', 'syncIntervalSec', 'calc', 'options', 'companyInfo'] as const;
+    const cur = await fetch('/api/config').then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+    const merged = { ...cur, ...Object.fromEntries(MINE.filter(k => k in newCfg).map(k => [k, (newCfg as Record<string, unknown>)[k]])) };
+    const res = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(merged) });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || '환경설정을 저장하지 못했습니다.'); }
+    setConfig(merged as SystemConfig);
   };
 
   // Reset demo
@@ -521,6 +519,7 @@ export default function App() {
                 onQuickAddCustomer={handleQuickAddCustomer}
                 osTheme={osTheme}
                 calc={config.calc}
+                options={config.options}
               />
             )}
 

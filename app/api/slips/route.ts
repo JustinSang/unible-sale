@@ -8,6 +8,7 @@ import { roundBy, normalizeCalc } from '@/lib/calcRules';
 import { openingConfig, ledgerBalance, syncReceivables } from '@/lib/receivables';
 import { audit } from '@/lib/audit';
 import { applyOldSlipEffects } from '@/lib/slipEdit';
+import { normalizeOptions } from '@/lib/envOptions';
 
 export async function GET() {
   const { data, error } = await supabase.from('slips').select('*').order('slipDate', { ascending: false });
@@ -43,6 +44,7 @@ export async function POST(req: Request) {
     // 금액 반올림 설정(환경설정). 없으면 반올림=기존 동작
     const { data: cfgRow } = await supabase.from('system_config').select('config').eq('id', 'default').maybeSingle();
     const calcCfg = normalizeCalc(cfgRow?.config?.calc);
+    const envOpt = normalizeOptions(cfgRow?.config?.options);
 
     // Process items and calculate totals
     const items = (slipData.items || []).map((item: any, idx: number) => {
@@ -139,7 +141,7 @@ export async function POST(req: Request) {
     }
 
     // 2-1. 거래처별 단가 이력 갱신(원본 Price 표: 저장 때 Price1이 바뀌면 1→2→3으로 민다). 매출 전표만. 실패해도 전표 저장은 유지한다.
-    if (newSlip.slipType === 'SALES' && newSlip.customerId) {
+    if (envOpt.autoSaveSalesPrice && newSlip.slipType === 'SALES' && newSlip.customerId) {
       const custKey = String(newSlip.customerId).replace(/^c-/, '');
       for (const item of items) {
         if (!item.productId) continue;
@@ -154,7 +156,7 @@ export async function POST(req: Request) {
     }
 
     // 2-2. 매입 전표: 품목의 매입단가·최종매입처·일자·가(직전 1건은 «2»로 이동)를 갱신한다. 실패해도 전표 저장은 유지.
-    if (newSlip.slipType === 'PURCHASE') {
+    if (envOpt.autoSavePurchasePrice && newSlip.slipType === 'PURCHASE') {
       for (const item of items) {
         if (!item.productId) continue;
         try {

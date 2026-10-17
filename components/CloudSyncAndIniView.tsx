@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { BackupPanel } from '@/components/BackupPanel';
 import { LoginSettingsPanel } from '@/components/LoginSettingsPanel';
+import { normalizeOptions, type EnvOptions } from '@/lib/envOptions';
 import {
   Sliders,
   Printer,
@@ -39,9 +40,13 @@ export function CloudSyncAndIniView({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onUpdateConfig(formConfig);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2500);
+    try {
+      await onUpdateConfig(formConfig);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2500);
+    } catch (err: any) {
+      alert(err.message || '환경설정을 저장하지 못했습니다.');
+    }
   };
 
   return (
@@ -236,6 +241,56 @@ export function CloudSyncAndIniView({
               </div>
             ))}
           </div>
+        </div>
+
+        {/* 전표 기본 설정(원본 «사용자 환경설정» 중 동작을 연결한 항목) */}
+        <div className={`p-4 rounded-lg border shadow-xs ${
+          osTheme === 'winxp-retro'
+            ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
+            : 'bg-white border-slate-200'
+        }`}>
+          <h3 className="font-bold text-xs text-slate-800 mb-1">전표 기본 설정</h3>
+          <p className="text-slate-500 mb-3">전표를 입력하고 저장할 때 적용되는 기본값입니다. 바꾸지 않으면 지금까지와 똑같이 동작합니다. 아래 «환경설정 저장»을 눌러야 반영됩니다.</p>
+          {(() => {
+            const o = normalizeOptions(formConfig.options);
+            const set = (patch: Partial<EnvOptions>) => setFormConfig({ ...formConfig, options: { ...o, ...patch } });
+            const sel = 'w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white';
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">단가 소수점</label>
+                  <select value={o.priceDecimals} onChange={e => set({ priceDecimals: Number(e.target.value) as EnvOptions['priceDecimals'] })} className={sel}>
+                    <option value={0}>정수(소수점 없음)</option><option value={1}>소수점 1자리</option><option value={2}>소수점 2자리</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-0.5">전표 입력을 열 때의 기본값(전표 화면에서 바꿀 수도 있음)</p>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">수량 소수점</label>
+                  <select value={o.qtyDecimals} onChange={e => set({ qtyDecimals: Number(e.target.value) as EnvOptions['qtyDecimals'] })} className={sel}>
+                    <option value={0}>정수(소수점 없음)</option><option value={1}>소수점 1자리</option><option value={2}>소수점 2자리</option><option value={3}>소수점 3자리</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-0.5">입력·계산·저장할 때 이 자리수로 맞춥니다</p>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">부가가치세 세율 (%)</label>
+                  <input type="number" min={0} max={100} step="0.1" value={o.vatRate} onChange={e => set({ vatRate: Number(e.target.value) })} className={sel} />
+                  <p className="text-[10px] text-slate-400 mt-0.5">«부가세 별도(세액 가산)» 전표와 세금계산서 기본 세액에 쓰입니다</p>
+                </div>
+                <label className="flex items-start gap-2 md:col-span-3 text-slate-700">
+                  <input type="checkbox" checked={o.creditLimitCheck} onChange={e => set({ creditLimitCheck: e.target.checked })} className="mt-0.5" />
+                  <span><b>여신한도 관리</b> — 매출을 저장한 뒤 거래처 미수금이 그 거래처의 여신한도를 넘으면 저장 전에 확인을 묻습니다(한도를 0이나 빈칸으로 둔 거래처는 검사하지 않음)</span>
+                </label>
+                <label className="flex items-start gap-2 md:col-span-3 text-slate-700">
+                  <input type="checkbox" checked={o.autoSaveSalesPrice} onChange={e => set({ autoSaveSalesPrice: e.target.checked })} className="mt-0.5" />
+                  <span><b>매출가 자동 저장</b> — 매출 전표를 저장할 때 거래처별 단가(단가1→2→3 이력)를 자동으로 갱신합니다</span>
+                </label>
+                <label className="flex items-start gap-2 md:col-span-3 text-slate-700">
+                  <input type="checkbox" checked={o.autoSavePurchasePrice} onChange={e => set({ autoSavePurchasePrice: e.target.checked })} className="mt-0.5" />
+                  <span><b>매입가 자동 저장</b> — 매입 전표를 저장할 때 품목의 매입단가·최종매입처·최종매입일을 자동으로 갱신합니다</span>
+                </label>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Company Info */}

@@ -5,6 +5,7 @@ import React, { useState, useMemo, useDeferredValue, useRef, useEffect } from 'r
 import { displayProductName } from '@/lib/productName';
 import { HistoryPicker, MyItemsPicker } from '@/components/SlipAssist';
 import { roundBy, normalizeCalc, type CalcConfig } from '@/lib/calcRules';
+import { normalizeOptions, roundTo, type EnvOptions } from '@/lib/envOptions';
 import {
   Copy,
   Plus,
@@ -40,6 +41,7 @@ interface SlipEntryViewProps {
   onQuickAddCustomer?: (c: Partial<Customer>) => Promise<Customer | undefined>;
   osTheme: OSTheme;
   calc?: Partial<CalcConfig>; // 환경설정의 금액 반올림(없으면 반올림=기존 동작)
+  options?: Partial<EnvOptions>; // 환경설정의 단가·수량 소수점·부가세율·여신한도 경고(없으면 기존 동작)
 }
 
 export function SlipEntryView({
@@ -55,7 +57,8 @@ export function SlipEntryView({
   onNavigateTab,
   onQuickAddCustomer,
   osTheme,
-  calc
+  calc,
+  options
 }: SlipEntryViewProps) {
   // Today date format
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -68,13 +71,15 @@ export function SlipEntryView({
   const [vatMode, setVatMode] = useState<'incl' | 'excl'>('excl');
   useEffect(() => { try { const v = localStorage.getItem('oksale.vatMode2'); if (v === 'excl' || v === 'incl') setVatMode(v); } catch {} }, []);
   // 단가소수점(0·1·2 순환)·전잔액출력·현재 선택 행(하단 정보행용)·견적서 참조사항 입력창 — 원본 전표작업 창의 같은 이름 항목
-  const [priceDecimals, setPriceDecimals] = useState<0 | 1 | 2>(0);
+  const opt = normalizeOptions(options);
+  const [priceDecimals, setPriceDecimals] = useState<0 | 1 | 2>(opt.priceDecimals);
+  const roundQty = (n: number) => roundTo(n, opt.qtyDecimals);
   const [printPrevBalance, setPrintPrevBalance] = useState<boolean>(false);
   const [focusRow, setFocusRow] = useState<number>(0);
   const [refDialog, setRefDialog] = useState<string[] | null>(null);
   const calcCfg = normalizeCalc(calc);
   const amtR = (x: number) => roundBy(x, calcCfg.amt);
-  const taxOf = (supply: number) => (vatMode === 'incl' ? roundBy(supply * 0.1, calcCfg.vat) : 0);
+  const taxOf = (supply: number) => (vatMode === 'incl' ? roundBy(supply * (opt.vatRate / 100), calcCfg.vat) : 0);
   const [editingSlipId, setEditingSlipId] = useState<string | null>(null);
   const [linkedFromId, setLinkedFromId] = useState<string | null>(null);
   // 원본 전표작업은 빈 격자로 시작한다(품목을 미리 채우지 않는다) — 거래처도 고르기 전에는 비어 있다.
@@ -554,7 +559,7 @@ export function SlipEntryView({
 
       // Quantity or UnitPrice changed
       if (field === 'qty' || field === 'unitPrice') {
-        const q = field === 'qty' ? Number(val) || 0 : target.qty;
+        const q = roundQty(Number(field === 'qty' ? val : target.qty) || 0);
         const p = field === 'unitPrice' ? Number((Number(val) || 0).toFixed(priceDecimals)) : target.unitPrice;
         target.supplyAmount = amtR(q * p);
         target.taxAmount = taxOf(target.supplyAmount);
@@ -570,17 +575,17 @@ export function SlipEntryView({
     setVatMode(mode);
     if (persist) { try { localStorage.setItem('oksale.vatMode2', mode); } catch {} }
     setItems(prev => prev.map(it => {
-      const tax = mode === 'incl' ? roundBy(it.supplyAmount * 0.1, calcCfg.vat) : 0;
+      const tax = mode === 'incl' ? roundBy(it.supplyAmount * (opt.vatRate / 100), calcCfg.vat) : 0;
       return { ...it, taxAmount: tax, totalAmount: it.supplyAmount + tax };
     }));
   };
 
   // 품목 검색창에서 수량을 넣은 규격들을 전표 줄로 담는다(첫 줄은 선택한 빈 줄을 채우고 나머지는 그 아래에 추가).
   const applyModalQty = (): boolean => {
-    const picks = searchResults.filter(p => Number(modalQty[p.id]) > 0);
+    const picks = searchResults.filter(p => roundQty(Number(modalQty[p.id])) > 0);
     if (picks.length === 0) return false;
     const rows: SlipItem[] = picks.map((prod, i) => {
-      const qty = Number(modalQty[prod.id]);
+      const qty = roundQty(Number(modalQty[prod.id]));
       const price = getProductPrice(prod);
       const supply = amtR(qty * price);
       const tax = taxOf(supply);
@@ -774,9 +779,15 @@ export function SlipEntryView({
       alert('품목을 한 줄 이상 입력해주세요.');
       return;
     }
-    if (filledItems.some(it => it.qty <= 0)) {
-      alert('모든 품목의 수량을 1 이상으로 입력해주세요.');
+    if (filledItems.some(it => roundQty(Number(it.qty)) <= 0)) {
+      alert(opt.qtyDecimals ? '모든 품목의 수량을 0보다 크게 입력해주세요.' : '모든 품목의 수량을 1 이상으로 입력해주세요.');
       return;
+    }
+    // 여신한도관리(환경설정): 매출 저장 뒤 거래처 미수금이 여신한도를 넘으면 한 번 확인한다(한도 0·미입력이면 검사하지 않는다)
+    if (opt.creditLimitCheck && slipType === 'SALES') {
+      const limit = Number(currentCustomer?.creditLimit) || 0;
+      const after = prevReceivables + unpaidAmount;
+      if (limit > 0 && after > limit && !confirm(`여신한도를 넘습니다.\n거래처 여신한도 ${limit.toLocaleString('ko-KR')}원 · 이 전표를 저장한 뒤 미수금 ${after.toLocaleString('ko-KR')}원 (초과 ${(after - limit).toLocaleString('ko-KR')}원)\n그래도 저장할까요?`)) return;
     }
     
     setIsSubmitting(true);
@@ -793,7 +804,7 @@ export function SlipEntryView({
           siteName: selectedSiteName,
           siteManager: selectedSiteManager,
           siteAddress: selectedSiteAddress,
-          items: filledItems,
+          items: opt.qtyDecimals ? filledItems.map(it => ({ ...it, qty: roundQty(Number(it.qty)) })) : filledItems,
           totalSupplyAmount,
           totalTaxAmount,
           totalAmount,
@@ -1225,7 +1236,7 @@ export function SlipEntryView({
           </div>
           <div className="flex items-center gap-3 text-xs">
             <span className="font-semibold text-slate-600">부가가치세:</span>
-            <label className="flex items-center gap-1 cursor-pointer"><input type="radio" name="vatMode" checked={vatMode === 'incl'} onChange={() => handleVatModeChange('incl')} />포함(세액 10% 가산)</label>
+            <label className="flex items-center gap-1 cursor-pointer"><input type="radio" name="vatMode" checked={vatMode === 'incl'} onChange={() => handleVatModeChange('incl')} />포함(세액 {opt.vatRate}% 가산)</label>
             <label className="flex items-center gap-1 cursor-pointer"><input type="radio" name="vatMode" checked={vatMode === 'excl'} onChange={() => handleVatModeChange('excl')} />별도(세액 없음)</label>
             <span className="text-slate-400">한 번 고르면 계속 유지됩니다.</span>
             <label className="flex items-center gap-1 cursor-pointer ml-3"><input type="checkbox" checked={printPrevBalance} onChange={e => setPrintPrevBalance(e.target.checked)} />전잔액 출력</label>
@@ -1628,7 +1639,8 @@ export function SlipEntryView({
                   <td className="py-3 px-3">
                     <input
                       type="number"
-                      min={1}
+                      min={opt.qtyDecimals ? Math.pow(10, -opt.qtyDecimals) : 1}
+                      step={opt.qtyDecimals ? Math.pow(10, -opt.qtyDecimals) : 1}
                       value={row.qty}
                       onFocus={() => setFocusRow(idx)}
                       onChange={e => handleItemChange(idx, 'qty', e.target.value)}
@@ -2092,6 +2104,7 @@ export function SlipEntryView({
                             onChange={e => setModalQty(q => ({ ...q, [p.id]: e.target.value }))}
                             onKeyDown={e => { if (e.key === 'Escape') { applyModalQty(); setIsProductSearchOpen(false); } }}
                             placeholder="수량"
+                            step={opt.qtyDecimals ? Math.pow(10, -opt.qtyDecimals) : 1}
                             className="w-16 py-1 px-1.5 border border-slate-300 rounded text-right font-mono text-xs focus:ring-1 focus:ring-blue-500"
                           />
                         </td>

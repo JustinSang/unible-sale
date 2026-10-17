@@ -109,6 +109,8 @@ export interface SlipItem {
 
 export type SlipType = 'SALES' | 'PURCHASE' | 'RETURN_IN' | 'RETURN_OUT' | 'ESTIMATE' | 'ORDER' | 'DELIVERY' | 'CONTRACT';
 
+export type ProgressStatus = 'open' | 'hold' | 'done' | 'cancel'; // 진행중·보류·완료·취소
+
 export interface DispatchStatus {
   printCount: number;
   faxStatus: 'IDLE' | 'SENDING' | 'SUCCESS' | 'FAIL';
@@ -143,6 +145,7 @@ export interface Slip {
   memo?: string;
   createdAt: string;
   deliveryStatus?: 'none' | 'pending' | 'shipping' | 'delivered';
+  progressStatus?: ProgressStatus; // 전표 진행상태(이카운트 «진행상태변경» 대응). 없으면 진행중
   dispatchStatus?: DispatchStatus;
   digitalSignature?: string; // 전자서명 위변조 방지 해시
   tsaToken?: string;         // RFC 3161 공인 타임스탬프 대체 토큰

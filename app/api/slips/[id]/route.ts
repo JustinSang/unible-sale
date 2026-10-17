@@ -43,3 +43,22 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     return NextResponse.json({ error: error.message || '전표 삭제 실패' }, { status: 500 });
   }
 }
+
+// 전표 진행상태만 바꾼다(금액·재고·미수금은 건드리지 않는다).
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const { progressStatus } = await req.json();
+    if (!['open', 'hold', 'done', 'cancel'].includes(progressStatus)) {
+      return NextResponse.json({ error: '진행상태는 진행중·보류·완료·취소 중 하나여야 합니다.' }, { status: 400 });
+    }
+    const { data: slip } = await supabase.from('slips').select('id, slipNo, progressStatus').eq('id', id).maybeSingle();
+    if (!slip) return NextResponse.json({ error: '전표를 찾을 수 없습니다.' }, { status: 404 });
+    const { error } = await supabase.from('slips').update({ progressStatus }).eq('id', id);
+    if (error) throw new Error(error.message);
+    await audit('update', 'slip', id, `전표 진행상태: ${slip.slipNo} ${slip.progressStatus || 'open'} → ${progressStatus}`);
+    return NextResponse.json({ success: true, id, progressStatus });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || '진행상태 변경 실패' }, { status: 500 });
+  }
+}

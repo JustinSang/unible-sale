@@ -93,6 +93,7 @@ export async function POST(req: Request) {
       unpaidAmount,
       prevReceivables,
       memo: slipData.memo || '',
+      ...(slipData.progressStatus ? { progressStatus: slipData.progressStatus } : {}), // 수정 저장 때 진행상태를 잃지 않게
       createdAt: now.toISOString(),
       deliveryStatus: deliveryInfo?.required ? 'pending' : (slipData.deliveryStatus || 'none')
     };

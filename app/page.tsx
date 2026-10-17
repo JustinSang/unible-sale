@@ -28,7 +28,8 @@ import type {
   OSTheme,
   Bill,
   TaxInvoice,
-  CollectionPayment
+  CollectionPayment,
+  ProgressStatus
 } from '@/types';
 
 // 미동이엔씨 연동 화면은 동산화스너 배포에서만 불러온다(다른 고객사 빌드에는 코드·문구가 들어가지 않는다 — lib/brand.ts 와 같은 방식).
@@ -396,6 +397,12 @@ export default function App() {
     }
   };
 
+  const handleSetProgress = async (id: string, status: ProgressStatus) => {
+    const res = await fetch(`/api/slips/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ progressStatus: status }) });
+    if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.error || '진행상태를 바꾸지 못했습니다.'); return; }
+    await fetchFullData(true);
+  };
+
   // Delivery Actions
   const handleUpdateDelivery = async (id: string, updates: Partial<DeliveryOrder>) => {
     const res = await fetch(`/api/deliveries/${id}`, {
@@ -506,6 +513,7 @@ export default function App() {
                 slips={slips}
                 onSaveSlip={handleSaveSlip}
                 onDeleteSlip={handleDeleteSlip}
+                onSetProgress={handleSetProgress}
                 onOpenPrint={handleOpenPrint}
                 onBundlePdf={setBundleSlips}
                 adminMode={adminMode}

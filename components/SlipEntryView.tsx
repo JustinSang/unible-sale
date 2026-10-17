@@ -21,7 +21,10 @@ import {
   Building,
   X
 } from 'lucide-react';
-import type { Product, Customer, Slip, SlipItem, SlipType, OSTheme, CustomerSite, DispatchStatus } from '@/types';
+import type { Product, Customer, Slip, SlipItem, SlipType, OSTheme, CustomerSite, DispatchStatus, ProgressStatus } from '@/types';
+
+const PROGRESS_LABEL: Record<ProgressStatus, string> = { open: '진행중', hold: '보류', done: '완료', cancel: '취소' };
+const PROGRESS_COLOR: Record<ProgressStatus, string> = { open: 'border-slate-300 text-slate-700 bg-white', hold: 'border-amber-300 text-amber-700 bg-amber-50', done: 'border-emerald-300 text-emerald-700 bg-emerald-50', cancel: 'border-rose-300 text-rose-600 bg-rose-50 line-through' };
 
 interface SlipEntryViewProps {
   products: Product[];
@@ -29,6 +32,7 @@ interface SlipEntryViewProps {
   slips: Slip[];
   onSaveSlip: (slipData: Partial<Slip>, deliveryInfo?: any) => Promise<Slip>;
   onDeleteSlip: (id: string) => Promise<void>;
+  onSetProgress?: (id: string, status: ProgressStatus) => Promise<void>; // 전표 진행상태 변경
   onOpenPrint: (slip: Slip) => void;
   onBundlePdf?: (slips: Slip[]) => void;
   adminMode?: boolean; // 관리자 모드: 발송·배송된 전표도 수정·삭제 가능
@@ -44,6 +48,7 @@ export function SlipEntryView({
   slips,
   onSaveSlip,
   onDeleteSlip,
+  onSetProgress,
   onOpenPrint,
   onBundlePdf,
   adminMode = false,
@@ -265,6 +270,7 @@ export function SlipEntryView({
   const [historyEndDate, setHistoryEndDate] = useState<string>(todayStr);
   const [historyFilter, setHistoryFilter] = useState<string>('');
   const deferredHistoryFilter = useDeferredValue(historyFilter);
+  const [progressFilter, setProgressFilter] = useState<'all' | ProgressStatus>('all');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Fast Product Search Modal States (11,000+ items high performance)
@@ -795,7 +801,8 @@ export function SlipEntryView({
           paidAmount,
           unpaidAmount,
           prevReceivables,
-          memo
+          memo,
+          progressStatus: editingSlipId ? slips.find(s => s.id === editingSlipId)?.progressStatus : undefined
         },
         needDelivery
           ? {
@@ -842,6 +849,7 @@ export function SlipEntryView({
   const filteredSlips = useMemo(() => {
     const result = slips.filter(s => {
       if (s.slipDate < historyStartDate || s.slipDate > historyEndDate) return false;
+      if (progressFilter !== 'all' && (s.progressStatus || 'open') !== progressFilter) return false;
       
       if (!deferredHistoryFilter.trim()) return true;
       const q = deferredHistoryFilter.toLowerCase();
@@ -854,7 +862,7 @@ export function SlipEntryView({
     });
     // 최신순(전표일자 내림차순, 생성일시 내림차순) 정렬
     return result.sort((a, b) => b.slipDate.localeCompare(a.slipDate) || (b.createdAt || '').localeCompare(a.createdAt || ''));
-  }, [slips, historyStartDate, historyEndDate, deferredHistoryFilter]);
+  }, [slips, historyStartDate, historyEndDate, deferredHistoryFilter, progressFilter]);
 
   const { totalFilteredSupply, totalFilteredTax, totalFilteredAmount } = useMemo(() => {
     return filteredSlips.reduce((acc, slip) => {
@@ -1026,6 +1034,9 @@ export function SlipEntryView({
                 className="px-2 py-1 border border-slate-300 rounded focus:ring-1 focus:ring-blue-500"
               />
             </div>
+            <select value={progressFilter} onChange={e => setProgressFilter(e.target.value as 'all' | ProgressStatus)} className="px-2 py-1 border border-slate-300 rounded bg-white" title="진행상태로 걸러 보기">
+              <option value="all">진행상태 전체</option>{(Object.keys(PROGRESS_LABEL) as ProgressStatus[]).map(k => <option key={k} value={k}>{PROGRESS_LABEL[k]}</option>)}
+            </select>
             <div className="relative w-full">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -1053,13 +1064,14 @@ export function SlipEntryView({
                 <th className="py-2 px-2 text-right w-20">합계</th>
                 <th className="py-2 px-2 text-right w-16">세액</th>
                 <th className="py-2 px-2 text-center w-16">전표번호</th>
+                <th className="py-2 px-2 text-center w-16">진행</th>
                 <th className="py-2 px-2 text-center w-16">기능</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
               {filteredSlips.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-slate-400">
+                  <td colSpan={11} className="py-8 text-center text-slate-400">
                     해당 기간에 발행된 전표 내역이 없습니다.
                   </td>
                 </tr>
@@ -1105,6 +1117,13 @@ export function SlipEntryView({
                         {hideAmounts ? '-' : taxAmt.toLocaleString('ko-KR')}
                       </td>
                       <td className="py-1.5 px-2 text-center font-mono text-slate-500">#{slip.slipNo}{isDispatched(slip.dispatchStatus) && <span className="ml-1 px-1 rounded bg-emerald-100 text-emerald-700 text-[10px] font-sans font-bold" title={[slip.dispatchStatus?.faxStatus === 'SUCCESS' ? `팩스 ${slip.dispatchStatus?.faxAt?.slice(0, 16).replace('T', ' ') || ''} ${slip.dispatchStatus?.faxTo || ''}` : '', slip.dispatchStatus?.emailStatus === 'SUCCESS' ? '이메일' : '', slip.dispatchStatus?.kakaoStatus === 'SUCCESS' ? '카카오' : ''].filter(Boolean).join(' · ')}>발송됨</span>}</td>
+                      <td className="py-1.5 px-1 text-center" onClick={e => e.stopPropagation()}>
+                        <select value={slip.progressStatus || 'open'} disabled={!onSetProgress}
+                          onChange={e => onSetProgress?.(slip.id, e.target.value as ProgressStatus)}
+                          className={`text-[10px] border rounded px-0.5 py-0.5 font-semibold ${PROGRESS_COLOR[slip.progressStatus || 'open']}`} title="진행상태 변경 — 금액·재고·미수금은 바뀌지 않습니다">
+                          {(Object.keys(PROGRESS_LABEL) as ProgressStatus[]).map(k => <option key={k} value={k}>{PROGRESS_LABEL[k]}</option>)}
+                        </select>
+                      </td>
                       <td className="py-1.5 px-2 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button 
@@ -1150,7 +1169,7 @@ export function SlipEntryView({
                   <td className="py-2 px-2 text-right font-mono font-bold text-slate-700">
                     {totalFilteredTax.toLocaleString('ko-KR')}
                   </td>
-                  <td colSpan={2} className="py-2 px-2"></td>
+                  <td colSpan={3} className="py-2 px-2"></td>
                 </tr>
               </tfoot>
             )}

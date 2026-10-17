@@ -615,6 +615,7 @@ export default function App() {
                 bills={bills}
                 company={config?.companyInfo}
                 customerPrices={customerPrices}
+                onPricesChanged={() => fetchFullData(true)}
                 osTheme={osTheme}
               />
             )}

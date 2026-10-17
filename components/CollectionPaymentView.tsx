@@ -31,6 +31,7 @@ interface CollectionPaymentViewProps {
     amount: number;
     discount?: number;
     billNo?: string;
+    account?: string;
     prevBalance?: number;
     memo?: string;
   }) => Promise<void>;
@@ -55,6 +56,7 @@ export function CollectionPaymentView({
   const [memo, setMemo] = useState<string>('');
   const [discount, setDiscount] = useState<number>(0);
   const [billNo, setBillNo] = useState<string>('');
+  const [account, setAccount] = useState<string>('');
   const [stmtFrom, setStmtFrom] = useState<string>(today.slice(0, 4) + '-01-01');
   const [stmtTo, setStmtTo] = useState<string>(today);
   // 기초잔액(전표입력·장부 화면과 같은 값) — 도입 시점 잔액을 입력해 두면 입금예정액·월별 내역에 반영된다.
@@ -145,10 +147,11 @@ export function CollectionPaymentView({
 
     setIsSubmitting(true);
     try {
-      await onAddCollection({ date, type, customerId: selectedCustomer?.id || selectedCustomerId, method, amount, discount, billNo: method === 'bill' ? billNo : '', prevBalance: curBalance, memo });
+      await onAddCollection({ date, type, customerId: selectedCustomer?.id || selectedCustomerId, method, amount, discount, billNo: method === 'bill' ? billNo : '', account: account.trim(), prevBalance: curBalance, memo });
       setAmount(0);
       setDiscount(0);
       setBillNo('');
+      setAccount('');
       setMemo('');
       alert(`${type === 'collection' ? '수금' : '지급'} 처리가 완료되었습니다.`);
     } catch (err: any) {
@@ -380,6 +383,19 @@ export function CollectionPaymentView({
             </div>
           </div>
 
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">계정과목 <span className="font-normal text-slate-400">(선택)</span></label>
+            <input
+              type="text"
+              list="collection-accounts"
+              value={account}
+              onChange={e => setAccount(e.target.value)}
+              placeholder={type === 'collection' ? '예: 외상매출금' : '예: 외상매입금'}
+              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white focus:ring-1 focus:ring-blue-500"
+            />
+            <datalist id="collection-accounts">{['외상매출금', '외상매입금', '선수금', '선급금', '받을어음', '지급어음', '기타'].map(a => <option key={a} value={a} />)}</datalist>
+          </div>
+
           {method === 'bill' && (
             <div>
               <label className="block font-semibold text-slate-700 mb-1">어음번호</label>
@@ -526,7 +542,7 @@ export function CollectionPaymentView({
                     </td>
                     <td className="py-2.5 px-3 font-semibold text-slate-900">{item.customerName}</td>
                     <td className="py-2.5 px-3 text-slate-600">
-                      {item.method === 'bank' ? '통장계좌' : item.method === 'cash' ? '현금' : '어음'}
+                      {item.method === 'bank' ? '통장계좌' : item.method === 'cash' ? '현금' : '어음'}{item.account ? <span className="block text-[10px] text-slate-400">{item.account}</span> : null}
                     </td>
                     <td className={`py-2.5 px-3 text-right font-mono font-bold ${
                       item.type === 'collection' ? 'text-emerald-700' : 'text-blue-700'

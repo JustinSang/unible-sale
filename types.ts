@@ -274,6 +274,7 @@ export interface CollectionPayment {
   amount: number;
   discount?: number;   // 할인액(원본 수금지급 «할인액»)
   billNo?: string;     // 어음번호(어음 수금·지급 때)
+  account?: string;    // 계정과목(원본 수금지급 «계정과목» — 자유 입력, 예: 외상매출금·선수금)
   prevBalance: number;
   currentBalance: number;
   memo?: string;

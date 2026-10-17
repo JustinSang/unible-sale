@@ -32,6 +32,7 @@ export async function POST(req: Request) {
       amount,
       discount,
       billNo: data.billNo || '',
+      ...(data.account ? { account: String(data.account).slice(0, 40) } : {}),
       prevBalance,
       currentBalance,
       memo: data.memo || ''

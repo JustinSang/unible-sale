@@ -616,6 +616,10 @@ export function ProductMasterView({
                     <input type="text" value={form.storageLocation || ''} onChange={e => setForm({ ...form, storageLocation: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white" />
                   </div>
                   <div>
+                    <label className="block font-semibold text-slate-700 mb-1">바코드</label>
+                    <input type="text" value={form.barcode || ''} onChange={e => setForm({ ...form, barcode: e.target.value })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white font-mono" />
+                  </div>
+                  <div>
                     <label className="block font-semibold text-slate-700 mb-1">과세 여부</label>
                     <select value={form.taxType || 'taxable'} onChange={e => setForm({ ...form, taxType: e.target.value as 'taxable' | 'exempt' })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white">
                       <option value="taxable">과세</option>

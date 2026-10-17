@@ -17,6 +17,7 @@ interface LedgerReportsViewProps {
   bills?: Bill[];
   company?: { name: string; ceo: string; bizNumber: string; address: string; bizType: string; bizItem: string };
   customerPrices: Record<string, Record<string, any>>;
+  onPricesChanged?: () => void; // 단가표 복사 뒤 화면 자료를 다시 읽는다
   osTheme: OSTheme;
 }
 
@@ -128,7 +129,7 @@ function OpeningEditor({ customers, opening, onSave }: { customers: { id: string
   );
 }
 
-export function LedgerReportsView({ slips: rawSlips, collections, customers, taxInvoices, products = [], bills = [], company, customerPrices }: LedgerReportsViewProps) {
+export function LedgerReportsView({ slips: rawSlips, collections, customers, taxInvoices, products = [], bills = [], company, customerPrices, onPricesChanged }: LedgerReportsViewProps) {
   const [section, setSection] = useState<Section>('daily');
 
   // 이관 과정에서 생긴 대문자 'SALES' 전표 중, 같은 날짜·합계의 소문자 'sales' 전표가 이미 있는 것은 중복 의심으로 집계에서 뺀다.
@@ -199,6 +200,26 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   }, [slips, collections, day]);
 
   // ───────── 현금출납부 ─────────
+  // 현금 입출금 줄(거래처 없는 기타 입출금, 원본 «현금출납 입력») — 현금출납부 탭을 열 때 읽는다
+  type CashEntry = { id: string; date: string; type: 'in' | 'out'; account: string; amount: number; memo: string };
+  const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
+  const [ceForm, setCeForm] = useState({ date: new Date().toISOString().slice(0, 10), type: 'in' as 'in' | 'out', account: '', amount: '', memo: '' });
+  const [ceMsg, setCeMsg] = useState('');
+  const loadCashEntries = async () => { try { const r = await fetch('/api/cash-entries'); if (r.ok) setCashEntries(await r.json()); } catch { /* 조회 실패는 빈 목록 */ } };
+  useEffect(() => { if (section === 'cashbook') loadCashEntries(); }, [section]);
+  const addCashEntry = async () => {
+    const r = await fetch('/api/cash-entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...ceForm, amount: Number(ceForm.amount) }) });
+    const d = await r.json();
+    if (!r.ok) { setCeMsg(`오류: ${d.error || r.status}`); return; }
+    if (ceForm.date > to) setTo(ceForm.date); if (ceForm.date < from) setFrom(ceForm.date); // 방금 입력한 줄이 조회 기간 밖이라 안 보이는 일을 막는다
+    setCeMsg('저장했습니다.'); setCeForm({ ...ceForm, account: '', amount: '', memo: '' }); loadCashEntries();
+  };
+  const delCashEntry = async (id: string) => {
+    if (!confirm('이 현금 입출금 줄을 삭제할까요?')) return;
+    const r = await fetch(`/api/cash-entries?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (r.ok) loadCashEntries(); else setCeMsg('오류: 삭제하지 못했습니다.');
+  };
+
   const cashbook = useMemo(() => {
     type Entry = { date: string; desc: string; inAmt: number; outAmt: number };
     const all: Entry[] = [];
@@ -214,6 +235,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
       if (c.type === 'collection') all.push({ date: c.date, desc: `수금 ${c.customerName}`, inAmt: c.amount, outAmt: 0 });
       else all.push({ date: c.date, desc: `지급 ${c.customerName}`, inAmt: 0, outAmt: c.amount });
     });
+    cashEntries.forEach(e => all.push({ date: e.date, desc: `입출금 ${e.account || '기타'}${e.memo ? ` · ${e.memo}` : ''}`, inAmt: e.type === 'in' ? e.amount : 0, outAmt: e.type === 'out' ? e.amount : 0 }));
     all.sort((a, b) => a.date.localeCompare(b.date));
     const opening = all.filter(e => e.date < from).reduce((a, e) => a + e.inAmt - e.outAmt, 0);
     let bal = opening;
@@ -224,7 +246,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
         return { ...e, bal };
       });
     return { opening, rows, totalIn: rows.reduce((a, r) => a + r.inAmt, 0), totalOut: rows.reduce((a, r) => a + r.outAmt, 0), closing: bal };
-  }, [slips, collections, from, to]);
+  }, [slips, collections, cashEntries, from, to]);
 
   // 기초잔액(도입 시점 미수 +·미지급 −) — 원본은 연도 이월 잔액을 저장하지 않으므로(Balance AC00 전 파일 0) 직접 입력받아 system_config에 보관한다.
   const [opening, setOpening] = useState<{ asOf: string; byCustomer: Record<string, number> }>({ asOf: '', byCustomer: {} });
@@ -626,6 +648,19 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
 
   const [priceCustomer, setPriceCustomer] = useState<string>('');
   const [priceQuery, setPriceQuery] = useState<string>('');
+  const [copyTo, setCopyTo] = useState<string>('');
+  const [copyMode, setCopyMode] = useState<'fill' | 'overwrite'>('fill');
+  const [copyMsg, setCopyMsg] = useState<string>('');
+  const runPriceCopy = async (dryRun: boolean) => {
+    const fromId = priceCustomers.find(x => x.c.id === priceCustomer)?.c.id || priceCustomers[0]?.c.id || '';
+    if (!fromId || !copyTo) { setCopyMsg('오류: 받는 거래처를 고르세요.'); return; }
+    if (!dryRun && !confirm('이 거래처의 단가표를 선택한 거래처로 복사합니다. 계속할까요?')) return;
+    const res = await fetch('/api/customer-prices/copy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromId, toId: copyTo, mode: copyMode, dryRun }) });
+    const d = await res.json();
+    if (!res.ok) { setCopyMsg(`오류: ${d.error || res.status}`); return; }
+    setCopyMsg(`${dryRun ? '미리보기' : '복사 완료'} — 보내는 품목 ${d.보내는_품목}건 · 새로 추가 ${d.새로_추가}건 · 이미 있음 ${d.이미_있음}건(단가가 다른 것 ${d.이미_있고_단가가_다름}건)${dryRun ? '' : ` · 반영 ${d.반영}건`}`);
+    if (!dryRun) onPricesChanged?.();
+  };
   const priceCustomers = useMemo(
     () =>
       customers
@@ -895,7 +930,28 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
               <tr className="bg-slate-50 font-bold"><td className={td}></td><td className={td}>합계 / 기말 잔액</td><td className={num}>{won(cashbook.totalIn)}</td><td className={num}>{won(cashbook.totalOut)}</td><td className={num}>{won(cashbook.closing)}</td></tr>
             </tbody>
           </table>
-          <p className="text-[11px] text-slate-500">현금 매출·매입 전표의 입금액과 현금 수금·지급을 합산합니다. 통장·어음·카드는 포함하지 않습니다.</p>
+          <p className="text-[11px] text-slate-500">현금 매출·매입 전표의 입금액과 현금 수금·지급, 아래에 직접 입력한 현금 입출금을 합산합니다. 통장·어음·카드는 포함하지 않습니다.</p>
+          <div className="space-y-2 text-xs bg-slate-50 border border-slate-200 rounded px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <b>현금 입출금 입력</b><span className="text-slate-500">거래처 없는 기타 입금·출금(거래처 미수금·재고에는 영향 없음)</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input type="date" value={ceForm.date} onChange={e => setCeForm({ ...ceForm, date: e.target.value })} className="border border-slate-300 rounded px-2 py-1" />
+              <select value={ceForm.type} onChange={e => setCeForm({ ...ceForm, type: e.target.value as 'in' | 'out' })} className="border border-slate-300 rounded px-2 py-1"><option value="in">입금</option><option value="out">출금</option></select>
+              <input value={ceForm.account} onChange={e => setCeForm({ ...ceForm, account: e.target.value })} placeholder="계정과목(예: 소모품비)" className="border border-slate-300 rounded px-2 py-1 w-40" />
+              <input type="number" value={ceForm.amount} onChange={e => setCeForm({ ...ceForm, amount: e.target.value })} placeholder="금액" className="border border-slate-300 rounded px-2 py-1 w-28 text-right font-mono" />
+              <input value={ceForm.memo} onChange={e => setCeForm({ ...ceForm, memo: e.target.value })} placeholder="적요" className="border border-slate-300 rounded px-2 py-1 w-52" />
+              <button onClick={addCashEntry} className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1 font-bold">저장</button>
+              {ceMsg && <span className={ceMsg.startsWith('오류') ? 'text-red-600 font-semibold' : 'text-emerald-700 font-semibold'}>{ceMsg}</span>}
+            </div>
+            {cashEntries.filter(e => e.date >= from && e.date <= to).length > 0 && (
+              <table className="border-collapse"><tbody>
+                {cashEntries.filter(e => e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date)).map(e => (
+                  <tr key={e.id}><td className={td}>{e.date}</td><td className={td}>{e.type === 'in' ? '입금' : '출금'}</td><td className={td}>{e.account}</td><td className={num}>{won(e.amount)}</td><td className={td}>{e.memo}</td><td className={td}><button onClick={() => delCashEntry(e.id)} className="text-rose-600 hover:underline">삭제</button></td></tr>
+                ))}
+              </tbody></table>
+            )}
+          </div>
         </div>
       )}
 
@@ -1153,6 +1209,19 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
               {priceRows.rows.length === 0 && <tr><td colSpan={6} className={`${td} text-center text-slate-400 py-6`}>등록된 거래처별 단가가 없습니다.</td></tr>}
             </tbody>
           </table>
+          <div className="flex flex-wrap items-center gap-2 text-xs bg-slate-50 border border-slate-200 rounded px-3 py-2">
+            <b>단가표 복사</b><span className="text-slate-500">위에서 고른 거래처의 단가표를</span>
+            <select value={copyTo} onChange={e => { setCopyTo(e.target.value); setCopyMsg(''); }} className="border border-slate-300 rounded px-2 py-1 max-w-[16rem]">
+              <option value="">받는 거래처 선택</option>
+              {customers.filter(c => !c.inactive && c.id !== priceCustomer).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select value={copyMode} onChange={e => { setCopyMode(e.target.value as 'fill' | 'overwrite'); setCopyMsg(''); }} className="border border-slate-300 rounded px-2 py-1">
+              <option value="fill">없는 품목만 추가</option><option value="overwrite">같은 품목은 덮어쓰기</option>
+            </select>
+            <button onClick={() => runPriceCopy(true)} className="border border-slate-300 rounded px-2 py-1 hover:bg-white font-semibold">미리보기</button>
+            <button onClick={() => runPriceCopy(false)} className="bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1 font-bold">복사</button>
+            {copyMsg && <span className={copyMsg.startsWith('오류') ? 'text-red-600 font-semibold' : 'text-emerald-700 font-semibold'}>{copyMsg}</span>}
+          </div>
           {priceRows.rows.length > 300 && <p className="text-[11px] text-slate-500">300건까지 표시했습니다. 검색으로 좁히거나 CSV로 전체를 받으세요.</p>}
         </div>
       )}

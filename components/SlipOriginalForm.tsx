@@ -7,6 +7,7 @@ import { OriginalSlipForm } from './OriginalSlipForm';
 import { OriginalFormReport } from './OriginalFormReport';
 import { cleanMask } from '@/lib/cleanMask';
 import { normSlipType, SLIP_TYPE_LABEL } from '@/lib/slipType';
+import { normalizePrint } from '@/lib/envOptions';
 
 // 전표 한 장을 «원본 양식»으로: 견적·발주는 견적서·발주서 양식, 나머지는 거래명세표 2단·16줄 양식.
 // PrintModal의 «원본 양식» 탭과 PDF 묶음이 같은 규칙을 쓰도록 한 곳에 모았다.
@@ -37,6 +38,7 @@ export function SlipOriginalForm({ slip: raw, config, customer, copies }: { slip
       seal={inbound ? '' : BRAND.seal}
       prevBalance={slip.prevReceivables}
       showPrev={slip.showPrevBalance !== false}
+      print={normalizePrint(config.options?.print)}
       copies={copies}
     />
   );

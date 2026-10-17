@@ -1,5 +1,6 @@
 'use client';
 
+import { normalizePrint } from '@/lib/envOptions';
 import { displayProductName } from '@/lib/productName';
 import { BRAND } from '@/lib/brand';
 import { OriginalSlipForm } from './OriginalSlipForm';
@@ -548,6 +549,7 @@ export function PrintModal({ slip: slipProp, config, customer: customerProp, cus
               seal={isInbound ? '' : BRAND.seal}
               prevBalance={slip.prevReceivables}
               showPrev={slip.showPrevBalance !== false}
+              print={normalizePrint(config.options?.print)}
               copies={slipCopies}
             />
             )

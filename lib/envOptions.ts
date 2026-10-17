@@ -7,6 +7,7 @@ export interface EnvOptions {
   creditLimitCheck: boolean;     // 여신한도관리: 매출 저장 때 거래처 여신한도를 넘으면 확인을 묻는다(원본의 정확한 동작은 미확인 — 경고 후 진행 선택으로 만듦)
   autoSaveSalesPrice: boolean;   // 매출가 자동저장(원본): 매출 저장 때 거래처별 단가 이력 갱신
   autoSavePurchasePrice: boolean; // 매입가 자동저장(원본): 매입 저장 때 품목의 매입단가·최종매입처 갱신
+  print?: Partial<PrintOptions>; // 거래명세표 선택 추가 출력
 }
 export const DEFAULT_OPTIONS: EnvOptions = { priceDecimals: 0, qtyDecimals: 0, vatRate: 10, creditLimitCheck: false, autoSaveSalesPrice: true, autoSavePurchasePrice: true };
 
@@ -22,7 +23,22 @@ export function normalizeOptions(raw?: Partial<EnvOptions> | null): EnvOptions {
     vatRate: Number.isFinite(vat) && vat >= 0 && vat <= 100 ? vat : DEFAULT_OPTIONS.vatRate,
     creditLimitCheck: o.creditLimitCheck === true,
     autoSaveSalesPrice: o.autoSaveSalesPrice !== false,
-    autoSavePurchasePrice: o.autoSavePurchasePrice !== false
+    autoSavePurchasePrice: o.autoSavePurchasePrice !== false,
+    print: normalizePrint(o.print) // 다른 항목을 저장할 때 출력 옵션이 사라지지 않게 함께 돌려준다
   };
+}
+// 거래명세표 «선택 추가 출력»(기본은 모두 꺼짐 = 지금 출력과 똑같다). 원본 Slip.rpt 에는 이 요소들이 없어(캡션 전수 확인) 원본 복원이 아니라 이 앱의 추가 기능이다.
+export interface PrintOptions {
+  siteName: boolean;       // 현장명 출력 — 머리 왼쪽 가운데 빈 칸에 «현장: …»
+  messageOn: boolean;      // 안내문 출력 — 아래 왼쪽에 한 줄
+  message: string;         // 안내문 내용(60자까지, 예: 입금 계좌 안내)
+  approvalOn: boolean;     // 결재란 출력 — 제목 오른쪽에 칸
+  approvalLabels: string;  // 결재란 칸 이름(쉼표로 구분, 최대 4개, 기본 «담당,대표»)
+}
+export const DEFAULT_PRINT: PrintOptions = { siteName: false, messageOn: false, message: '', approvalOn: false, approvalLabels: '담당,대표' };
+export function normalizePrint(raw?: Partial<PrintOptions> | null): PrintOptions {
+  const o = raw || {};
+  const labels = String(o.approvalLabels ?? DEFAULT_PRINT.approvalLabels).split(',').map(s => s.trim().slice(0, 4)).filter(Boolean).slice(0, 4).join(',') || DEFAULT_PRINT.approvalLabels;
+  return { siteName: o.siteName === true, messageOn: o.messageOn === true, message: String(o.message || '').replace(/[\r\n]+/g, ' ').slice(0, 60), approvalOn: o.approvalOn === true, approvalLabels: labels };
 }
 export const roundTo = (n: number, d: number) => { const f = Math.pow(10, d); return Math.round((Number(n) + Number.EPSILON) * f) / f; };

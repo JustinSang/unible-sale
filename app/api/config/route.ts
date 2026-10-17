@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { snapshotBefore } from '@/lib/configHistory';
 
 export async function GET() {
   const { data, error } = await supabase.from('system_config').select('config').eq('id', 'default').single();
@@ -11,6 +12,7 @@ export async function GET() {
 export async function PUT(req: Request) {
   try {
     const config = await req.json();
+    await snapshotBefore(config); // 바뀌기 전 설정을 이력에 남긴다(환경설정 탭의 «되돌리기»)
     const { error } = await supabase.from('system_config').upsert({ id: 'default', config });
     if (error) throw new Error(error.message);
     return NextResponse.json({ success: true, config });

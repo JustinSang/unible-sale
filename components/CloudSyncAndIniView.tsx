@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { BackupPanel } from '@/components/BackupPanel';
 import { LoginSettingsPanel } from '@/components/LoginSettingsPanel';
-import { normalizeOptions, type EnvOptions } from '@/lib/envOptions';
+import { ConfigHistoryPanel } from '@/components/ConfigHistoryPanel';
+import { normalizeOptions, normalizePrint, DEFAULT_PRINT, type EnvOptions, type PrintOptions } from '@/lib/envOptions';
 import {
   Sliders,
   Printer,
@@ -293,6 +294,30 @@ export function CloudSyncAndIniView({
           })()}
         </div>
 
+        {/* 거래명세표 선택 추가 출력 — 기본은 모두 꺼짐(지금 출력과 똑같다) */}
+        <div className={`p-4 rounded-lg border shadow-xs ${
+          osTheme === 'winxp-retro'
+            ? 'bg-[#d4d0c8] border-2 border-t-white border-l-white border-r-[#808080] border-b-[#808080]'
+            : 'bg-white border-slate-200'
+        }`}>
+          <h3 className="font-bold text-xs text-slate-800 mb-1">거래명세표 추가 출력 (선택)</h3>
+          <p className="text-slate-500 mb-3">«원본 양식» 거래명세표(인쇄·PDF·PDF 묶음)에 덧붙여 찍을 내용입니다. 모두 끄면 지금과 똑같이 출력됩니다. 저장 전 설정은 아래 «변경 이력»에서 언제든 되돌릴 수 있습니다.</p>
+          {(() => {
+            const o = normalizeOptions(formConfig.options); const p = normalizePrint(o.print);
+            const setP = (patch: Partial<PrintOptions>) => setFormConfig({ ...formConfig, options: { ...o, print: { ...p, ...patch } } });
+            return (
+              <div className="space-y-2.5">
+                <label className="flex items-start gap-2 text-slate-700"><input type="checkbox" checked={p.siteName} onChange={e => setP({ siteName: e.target.checked })} className="mt-0.5" /><span><b>현장명 출력</b> — 거래처 아래 빈 칸에 «현장: 현장명»을 찍습니다(전표에 현장이 지정된 경우)</span></label>
+                <label className="flex items-start gap-2 text-slate-700"><input type="checkbox" checked={p.approvalOn} onChange={e => setP({ approvalOn: e.target.checked })} className="mt-0.5" /><span><b>결재란 출력</b> — 제목 오른쪽 위에 결재 칸을 그립니다</span></label>
+                {p.approvalOn && <div className="pl-6 flex items-center gap-2"><span className="text-slate-600">칸 이름(쉼표로 구분, 최대 4개)</span><input value={p.approvalLabels} onChange={e => setP({ approvalLabels: e.target.value })} placeholder={DEFAULT_PRINT.approvalLabels} className="border border-slate-300 rounded px-2 py-1 w-48" /></div>}
+                <label className="flex items-start gap-2 text-slate-700"><input type="checkbox" checked={p.messageOn} onChange={e => setP({ messageOn: e.target.checked })} className="mt-0.5" /><span><b>안내문 출력</b> — 아래 왼쪽에 한 줄을 찍습니다(예: 입금 계좌 안내)</span></label>
+                {p.messageOn && <div className="pl-6"><input value={p.message} maxLength={60} onChange={e => setP({ message: e.target.value })} placeholder="안내문 (60자까지)" className="border border-slate-300 rounded px-2 py-1 w-full max-w-lg" /></div>}
+                <div><button type="button" onClick={() => setP({ ...DEFAULT_PRINT })} className="text-slate-500 hover:text-blue-700 underline">추가 출력 모두 끄고 기본값으로</button></div>
+              </div>
+            );
+          })()}
+        </div>
+
         {/* Company Info */}
         <div className={`p-4 rounded-lg border shadow-xs ${
           osTheme === 'winxp-retro'
@@ -447,6 +472,7 @@ export function CloudSyncAndIniView({
           </button>
         </div>
       </form>
+      <ConfigHistoryPanel />
       <LoginSettingsPanel />
       <BackupPanel />
     </div>

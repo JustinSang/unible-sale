@@ -2,6 +2,7 @@
 
 import React from 'react';
 import type { Slip } from '@/types';
+import type { PrintOptions } from '@/lib/envOptions';
 
 // 오케이세일(머니플러스) Slip.rpt «거래명세표» 배치를 따른 2단·16줄 양식.
 // 근거: 원본 .rpt를 해독해 좌표를 복원(docs/analysis_rea/oksale/reports/rpt_layout.py → layouts/Slip.html). 단위는 twip(1/1440인치).
@@ -34,6 +35,7 @@ interface Props {
   seal: string; // 도장 이미지 경로 — 공급자 칸 성명 옆
   prevBalance?: number;
   showPrev?: boolean;
+  print?: PrintOptions; // 환경설정의 «선택 추가 출력»(현장명·안내문·결재란). 없거나 모두 꺼짐이면 원본 배치 그대로
   copies?: 'both' | 'recipient' | 'supplier'; // both=한 쪽에 위·아래 두 벌(인쇄·보관용) / recipient=받는 쪽 한 벌(팩스·전달용) / supplier=우리 보관용 한 벌
 }
 
@@ -49,7 +51,7 @@ function VLine({ x, y1, y2 }: { x: number; y1: number; y2: number }) {
   return <div style={{ position: 'absolute', left: tw(x), top: tw(y1), height: tw(y2 - y1), borderLeft: '0.25mm solid #000' }} />;
 }
 
-function Copy({ slip, supplier, buyer, kindLabel, seal, items, pageNo, pages, y0, tag, isLast, prevBalance, showPrev, totals }: Props & { items: Slip['items']; pageNo: number; pages: number; y0: number; tag: string; isLast: boolean; totals: { supply: number; tax: number; total: number } }) {
+function Copy({ slip, supplier, buyer, kindLabel, seal, print, items, pageNo, pages, y0, tag, isLast, prevBalance, showPrev, totals }: Props & { items: Slip['items']; pageNo: number; pages: number; y0: number; tag: string; isLast: boolean; totals: { supply: number; tax: number; total: number } }) {
   const Y = (n: number) => n + y0;
   const blank = ROWS - items.length;
   return (
@@ -66,6 +68,24 @@ function Copy({ slip, supplier, buyer, kindLabel, seal, items, pageNo, pages, y0
       <Txt l={285} t={Y(1083)} w={798} h={210}>거 래 처</Txt>
       <Txt l={1083} t={Y(1083)} w={4350} h={210} size={10} bold>{buyer.name}</Txt>
       <Txt l={5472} t={Y(1083)} w={456} h={180}>귀하</Txt>
+      {print?.siteName && slip.siteName && (
+        <>
+          <Txt l={285} t={Y(1548)} w={798} h={210}>현   장</Txt>
+          <Txt l={1083} t={Y(1548)} w={5100} h={210} size={9}>{slip.siteName}</Txt>
+        </>
+      )}
+      {print?.approvalOn && (() => {
+        // 결재란: 제목 오른쪽 위에 칸(제목 줄 y 114~774, 오른쪽 끝에 붙임). 칸 이름은 환경설정에서 정한다.
+        const labels = print.approvalLabels.split(',').filter(Boolean).slice(0, 4);
+        const CW = 780, x0 = RIGHT - CW * labels.length;
+        return (
+          <>
+            {labels.map((lb, k) => <Txt key={k} l={x0 + k * CW} t={Y(114)} w={CW} h={240} align="center" size={8}>{lb}</Txt>)}
+            <HLine x1={x0} x2={RIGHT} y={Y(114)} /><HLine x1={x0} x2={RIGHT} y={Y(354)} /><HLine x1={x0} x2={RIGHT} y={Y(774)} />
+            {Array.from({ length: labels.length + 1 }, (_, k) => <VLine key={k} x={x0 + k * CW} y1={Y(114)} y2={Y(774)} />)}
+          </>
+        );
+      })()}
       <Txt l={285} t={Y(1995)} w={798} h={210}>합계금액</Txt>
       <Txt l={1083} t={Y(1995)} w={5100} h={210} bold>₩ {won(slip.totalAmount)}</Txt>
       <Txt l={6327} t={Y(1083)} w={738} h={210}>등록번호</Txt>
@@ -116,6 +136,7 @@ function Copy({ slip, supplier, buyer, kindLabel, seal, items, pageNo, pages, y0
       <Txt l={8892} t={Y(7068)} w={741} h={180}>인수자</Txt>
       <Txt l={10773} t={Y(7068)} w={399} h={195}>(인)</Txt>
       <Txt l={9291} t={Y(7467)} w={1881} h={180} align="right" size={8}>{tag}</Txt>
+      {print?.messageOn && print.message && <Txt l={285} t={Y(7467)} w={8900} h={180} size={8}>{print.message}</Txt>}
     </>
   );
 }

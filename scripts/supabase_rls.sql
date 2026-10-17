@@ -17,4 +17,6 @@ alter table public.customer_prices enable row level security;
 alter table public.system_config enable row level security;
 alter table public.midong_orders enable row level security;
 alter table public.audit_log enable row level security;
+alter table public.cash_entries enable row level security;
+alter table public.config_history enable row level security;
 -- 정책(policy)을 만들지 않았으므로 anon·authenticated 역할은 모든 행이 거부된다(service_role만 통과).

@@ -101,12 +101,14 @@ alter table public.slips add column if not exists "deliveryStatus" text;
 alter table public.slips add column if not exists "dispatchStatus" jsonb;
 alter table public.slips add column if not exists "digitalSignature" text;
 alter table public.slips add column if not exists "tsaToken" text;
+alter table public.slips add column if not exists "progressStatus" text; -- 전표 진행상태(open·hold·done·cancel), 2026-10-17
 alter table public.slips disable row level security;
 
 create table if not exists public.collections ("id" text primary key);
 alter table public.collections add column if not exists "date" text;
 alter table public.collections add column if not exists "discount" numeric;
 alter table public.collections add column if not exists "billNo" text;
+alter table public.collections add column if not exists "account" text; -- 수금·지급 계정과목, 2026-10-17
 alter table public.collections add column if not exists "type" text;
 alter table public.collections add column if not exists "customerId" text;
 alter table public.collections add column if not exists "customerName" text;
@@ -236,3 +238,20 @@ alter table public.audit_log add column if not exists "entityId" text;
 alter table public.audit_log add column if not exists "summary" text;
 alter table public.audit_log add column if not exists "actor" text;
 alter table public.audit_log add column if not exists "detail" jsonb;
+
+-- 현금 입출금(거래처 없는 기타 입출금, app/api/cash-entries) — 현금출납부가 합산한다. 2026-10-17
+create table if not exists public.cash_entries ("id" text primary key);
+alter table public.cash_entries add column if not exists "date" text;
+alter table public.cash_entries add column if not exists "type" text;
+alter table public.cash_entries add column if not exists "account" text;
+alter table public.cash_entries add column if not exists "amount" numeric;
+alter table public.cash_entries add column if not exists "memo" text;
+alter table public.cash_entries add column if not exists "createdAt" text;
+alter table public.cash_entries disable row level security;
+
+-- 환경설정 변경 이력(lib/configHistory.ts) — 저장 직전 설정 사본, 최근 40개. 2026-10-17
+create table if not exists public.config_history ("id" text primary key);
+alter table public.config_history add column if not exists "at" text;
+alter table public.config_history add column if not exists "actor" text;
+alter table public.config_history add column if not exists "config" jsonb;
+alter table public.config_history disable row level security;

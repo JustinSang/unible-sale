@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { BackupPanel } from '@/components/BackupPanel';
+import { LoginSettingsPanel } from '@/components/LoginSettingsPanel';
 import {
   Sliders,
   Printer,
@@ -391,6 +392,7 @@ export function CloudSyncAndIniView({
           </button>
         </div>
       </form>
+      <LoginSettingsPanel />
       <BackupPanel />
     </div>
   );

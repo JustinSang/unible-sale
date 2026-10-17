@@ -8,7 +8,7 @@ import { authEnabled, verifySession, SESSION_COOKIE } from '@/lib/auth';
 // - staff 역할은 삭제(DELETE)·미동 전환·설정 변경·데모 초기화·변경 이력 조회가 막힌다(admin만).
 const PUBLIC = [/^\/login$/, /^\/api\/auth\/(login|logout)$/];
 const ADMIN_ONLY = (path: string, method: string) =>
-  method === 'DELETE' || path.startsWith('/api/midong-orders/convert') || path.startsWith('/api/reset-demo') || path.startsWith('/api/audit') || path.startsWith('/api/mdb-analyze') || (path.startsWith('/api/config') && method !== 'GET');
+  method === 'DELETE' || path.startsWith('/api/midong-orders/convert') || path.startsWith('/api/reset-demo') || path.startsWith('/api/audit') || (path.startsWith('/api/auth-setup') && method !== 'GET') || path.startsWith('/api/mdb-analyze') || (path.startsWith('/api/config') && method !== 'GET');
 
 export async function proxy(req: NextRequest) {
   const headers = new Headers(req.headers);

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { BackupPanel } from '@/components/BackupPanel';
 import {
   Sliders,
   Printer,
@@ -390,6 +391,7 @@ export function CloudSyncAndIniView({
           </button>
         </div>
       </form>
+      <BackupPanel />
     </div>
   );
 }

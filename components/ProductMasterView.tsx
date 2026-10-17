@@ -621,9 +621,10 @@ export function ProductMasterView({
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">과세 여부</label>
-                    <select value={form.taxType || 'taxable'} onChange={e => setForm({ ...form, taxType: e.target.value as 'taxable' | 'exempt' })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white">
-                      <option value="taxable">과세</option>
-                      <option value="exempt">면세</option>
+                    <select value={form.taxType || 'taxable'} onChange={e => setForm({ ...form, taxType: e.target.value as 'taxable' | 'exempt' | 'zero' })} className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white">
+                      <option value="taxable">과세 (세액 가산 전표에서 세율대로 세액)</option>
+                      <option value="exempt">면세 (세액 0)</option>
+                      <option value="zero">영세율 (과세 거래, 세액 0)</option>
                     </select>
                   </div>
                   <div className="flex items-end gap-4 pb-1.5">

@@ -24,7 +24,7 @@ export interface Product {
   lastPurchasePrice2?: number; // 최종매입가2(PurchasePrice2)
   openingStock?: number;       // 이월재고(원본 Stock S00) — 사용 이전/전년도 말 재고
   storageLocation?: string; // 보관 위치
-  taxType?: 'taxable' | 'exempt'; // 과세 여부
+  taxType?: 'taxable' | 'exempt' | 'zero'; // 과세 구분: 과세·면세·영세율(면세·영세는 세액 0)
   stockManaged?: boolean; // 재고관리 여부
   currentStock: number;  // 현재고
   safeStock: number;     // 적정재고
@@ -105,6 +105,7 @@ export interface SlipItem {
   totalAmount: number;
   discountRate?: number; // 할인율(%) — 협정가×(100+할인율)/100 로 단가 계산(원본 F4 협정)
   memo?: string;
+  taxType?: 'taxable' | 'exempt' | 'zero'; // 저장 때의 과세 구분(품목 설정이 나중에 바뀌어도 이 전표는 그대로)
 }
 
 export type SlipType = 'SALES' | 'PURCHASE' | 'RETURN_IN' | 'RETURN_OUT' | 'ESTIMATE' | 'ORDER' | 'DELIVERY' | 'CONTRACT';

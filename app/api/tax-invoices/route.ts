@@ -16,7 +16,9 @@ export async function POST(req: Request) {
     const body: Partial<TaxInvoice> = await req.json();
     const supplyAmount = Number(body.supplyAmount) || 0;
     const { data: cfgRow } = await supabase.from('system_config').select('config').eq('id', 'default').maybeSingle();
-    const taxAmount = Number(body.taxAmount) || Math.round(supplyAmount * (normalizeOptions(cfgRow?.config?.options).vatRate / 100));
+    // 세액을 보냈으면(0 포함) 그대로 쓴다 — 예전에는 0을 «없음»으로 보고 10%를 붙였다(면세·영세·별도 거래의 세금계산서가 10% 더 나왔음). 안 보냈을 때만 세율대로 계산한다.
+    const sentTax = body.taxAmount === undefined || body.taxAmount === null ? NaN : Number(body.taxAmount);
+    const taxAmount = Number.isFinite(sentTax) ? Math.round(sentTax) : Math.round(supplyAmount * (normalizeOptions(cfgRow?.config?.options).vatRate / 100));
     const totalAmount = supplyAmount + taxAmount;
 
     const newTax: TaxInvoice = {

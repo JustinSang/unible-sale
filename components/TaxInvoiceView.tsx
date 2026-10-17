@@ -29,6 +29,7 @@ interface AggregatedTaxRow {
   productSummary: string;
   checkReceipt: '영수' | '청구';
   slipCount: number;  // Number of slips in this aggregation
+  exempt?: number;    // 이 묶음에서 세금계산서 대상이 아니라 뺀 면세 공급가액
 }
 
 export function TaxInvoiceView({
@@ -58,6 +59,7 @@ export function TaxInvoiceView({
   const [printSiteName, setPrintSiteName] = useState(true);
 
   const [aggregatedData, setAggregatedData] = useState<AggregatedTaxRow[]>([]);
+  const [exemptNote, setExemptNote] = useState<string>('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Print Modal State
@@ -98,7 +100,11 @@ export function TaxInvoiceView({
 
     // Group by Customer or Site
     const grouped = new Map<string, AggregatedTaxRow>();
+    // 면세는 세금계산서가 아니라 «계산서» 대상이다 — 면세 거래처의 전표와 면세 품목 줄의 공급가액은 세금계산서 집계에서 뺀다(영세율 줄은 세액 0으로 포함).
+    const exemptCustomers = new Set(customers.filter(c => c.vatType === 'none').map(c => c.id));
+    let skippedCust = 0, skippedCustAmt = 0, skippedLineAmt = 0;
     targetSlips.forEach(s => {
+      if (exemptCustomers.has(s.customerId)) { skippedCust += 1; skippedCustAmt += s.totalSupplyAmount || 0; return; }
       const key = sumMethod === 'customer' 
         ? s.customerId 
         : `${s.customerId}-${s.siteId || 'NONE'}`;
@@ -121,9 +127,15 @@ export function TaxInvoiceView({
       }
       
       const g = grouped.get(key)!;
-      g.amount += s.totalSupplyAmount;
-      g.tax += s.totalTaxAmount;
-      g.total += s.totalAmount;
+      const lines = s.items || [];
+      const exemptSupply = lines.filter(it => it.taxType === 'exempt').reduce((a, it) => a + (it.supplyAmount || 0), 0);
+      const billable = lines.filter(it => it.taxType !== 'exempt');
+      const supply = lines.length ? billable.reduce((a, it) => a + (it.supplyAmount || 0), 0) : s.totalSupplyAmount;
+      const taxSum = lines.length ? billable.reduce((a, it) => a + (it.taxAmount || 0), 0) : s.totalTaxAmount;
+      skippedLineAmt += exemptSupply; g.exempt = (g.exempt || 0) + exemptSupply;
+      g.amount += supply;
+      g.tax += taxSum;
+      g.total += supply + taxSum;
       g.slipCount += 1;
       if (s.items && s.items.length > 0) {
         g.items.push(s.items[0].productName);
@@ -142,8 +154,9 @@ export function TaxInvoiceView({
     result.sort((a, b) => a.customerName.localeCompare(b.customerName));
     
     setAggregatedData(result);
+    setExemptNote(skippedCust || skippedLineAmt ? `면세 제외: ${skippedCust ? `면세 거래처 전표 ${skippedCust}건(공급가 ${formatKRW(skippedCustAmt)})` : ''}${skippedCust && skippedLineAmt ? ' · ' : ''}${skippedLineAmt ? `면세 품목 줄 공급가 ${formatKRW(skippedLineAmt)}` : ''} — 세금계산서가 아니라 계산서 대상입니다.` : '');
     setSelectedIds(new Set());
-  }, [slips, startDate, endDate, vatType, sumMethod, searchCustomer, viewMode]);
+  }, [slips, customers, startDate, endDate, vatType, sumMethod, searchCustomer, viewMode]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 2. Keyboard shortcuts
@@ -539,6 +552,7 @@ export function TaxInvoiceView({
               <td className={`${viewMode === 'aggregate' ? `border-r ${themeBorder}` : ''} px-2 py-1.5 text-right font-mono tabular-nums text-blue-800 text-sm`}>{formatKRW(totals.total)}</td>
               {viewMode === 'aggregate' && <td className="px-1 py-1.5 text-center text-slate-500 text-[10px]">{totals.count}건</td>}
             </tr>
+            {viewMode === 'aggregate' && exemptNote && <tr><td colSpan={8} className="px-2 py-1 text-[11px] text-amber-700 font-semibold">{exemptNote}</td></tr>}
           </tfoot>
         </table>
       </div>

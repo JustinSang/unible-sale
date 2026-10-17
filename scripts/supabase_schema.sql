@@ -101,6 +101,7 @@ alter table public.slips add column if not exists "deliveryStatus" text;
 alter table public.slips add column if not exists "dispatchStatus" jsonb;
 alter table public.slips add column if not exists "digitalSignature" text;
 alter table public.slips add column if not exists "tsaToken" text;
+alter table public.slips add column if not exists "linkedFromId" text; -- 전표 연결 원본 id, 2026-10-17
 alter table public.slips add column if not exists "progressStatus" text; -- 전표 진행상태(open·hold·done·cancel), 2026-10-17
 alter table public.slips disable row level security;
 

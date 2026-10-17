@@ -7,8 +7,9 @@ import { supabase } from '@/lib/supabase';
 import { roundBy, normalizeCalc } from '@/lib/calcRules';
 import { openingConfig, ledgerBalance, syncReceivables } from '@/lib/receivables';
 import { audit } from '@/lib/audit';
-import { applyOldSlipEffects } from '@/lib/slipEdit';
+import { applyOldSlipEffects, uniqueNow } from '@/lib/slipEdit';
 import { normalizeOptions } from '@/lib/envOptions';
+import { serverLineTax, normTaxType } from '@/lib/taxRules';
 
 export async function GET() {
   const { data, error } = await supabase.from('slips').select('*').order('slipDate', { ascending: false });
@@ -46,16 +47,32 @@ export async function POST(req: Request) {
     const calcCfg = normalizeCalc(cfgRow?.config?.calc);
     const envOpt = normalizeOptions(cfgRow?.config?.options);
 
+    // 세액 규칙(lib/taxRules): 화면이 보낸 세액을 믿지 않고 서버가 바로잡는다. 면세 거래처·면세/영세 품목은 0, 과세는 세율대로, 화면이 0을 보낸 «별도» 전표는 0.
+    const taxProdIds = [...new Set((slipData.items || []).map((i: any) => i?.productId).filter(Boolean))] as string[];
+    const taxTypeOfProd = new Map<string, unknown>();
+    if (taxProdIds.length) {
+      const { data: prods } = await supabase.from('products').select('id, taxType').in('id', taxProdIds);
+      (prods || []).forEach((p: any) => taxTypeOfProd.set(p.id, p.taxType));
+    }
+    const { data: taxCust } = await supabase.from('customers').select('vatType').eq('id', slipData.customerId).maybeSingle();
+    // 수정 저장이면 옛 전표에 기록된 과세 구분을 우선한다(품목 설정이 나중에 바뀌어도 이 전표의 세액 기준은 그대로)
+    const snapOfProd = new Map<string, unknown>((existing?.items || []).filter((i: any) => i?.productId && i?.taxType).map((i: any) => [i.productId, i.taxType]));
+
     // Process items and calculate totals
     const items = (slipData.items || []).map((item: any, idx: number) => {
       const qty = Number(item.qty) || 0;
       const unitPrice = Number(item.unitPrice) || 0;
       const supplyAmount = roundBy(qty * unitPrice, calcCfg.amt);
       // 세액은 화면의 «부가가치세 포함(세액 10% 가산)/별도(세액 없음)» 선택대로 받는다(매뉴얼 캡처 확정; 원본 실전표가 100% 세액 0 = 별도). 값이 없으면 0.
-      const taxAmount = Number.isFinite(Number(item.taxAmount)) ? Math.round(Number(item.taxAmount)) : 0;
+      const knownProd = !!item.productId && taxTypeOfProd.has(item.productId);
+      const taxType = knownProd ? normTaxType(snapOfProd.get(item.productId) ?? taxTypeOfProd.get(item.productId)) : undefined;
+      const taxAmount = serverLineTax(supplyAmount, item.taxAmount, taxType, taxCust?.vatType, envOpt.vatRate, calcCfg.vat);
       const totalAmount = supplyAmount + taxAmount;
+      const { taxType: _clientTaxType, ...itemRest } = item; // 화면이 보낸 과세 구분은 버리고 서버가 정한 값만 기록
+      void _clientTaxType;
       return {
-        ...item,
+        ...itemRest,
+        ...(taxType ? { taxType } : {}),
         id: item.id || `si-${Date.now()}-${idx}`,
         qty,
         unitPrice,
@@ -75,10 +92,10 @@ export async function POST(req: Request) {
     const editCfg = existing ? await openingConfig() : null;
     const oldDeliveries = existing ? ((await supabase.from('deliveries').select('*').eq('slipId', slipId)).data || []) : [];
     if (existing) {
-      await applyOldSlipEffects(existing, editCfg, 1);
+      await applyOldSlipEffects(existing, editCfg, 1, 'edit');
       await supabase.from('deliveries').delete().eq('slipId', slipId);
       const { error: delOld } = await supabase.from('slips').delete().eq('id', slipId);
-      if (delOld) { await applyOldSlipEffects(existing, editCfg, -1); throw new Error(delOld.message); }
+      if (delOld) { await applyOldSlipEffects(existing, editCfg, -1, 'restore'); throw new Error(delOld.message); }
     }
 
     // Get customer prevReceivables
@@ -108,6 +125,7 @@ export async function POST(req: Request) {
       unpaidAmount,
       prevReceivables,
       memo: slipData.memo || '',
+      ...((slipData.linkedFromId || existing?.linkedFromId) ? { linkedFromId: String(slipData.linkedFromId || existing?.linkedFromId) } : {}), // 전표 연결(견적→수주→매출) 원본 id — 예전에는 화면이 보내도 저장되지 않았다
       ...(slipData.progressStatus ? { progressStatus: slipData.progressStatus } : {}), // 수정 저장 때 진행상태를 잃지 않게
       createdAt: existing?.createdAt || now.toISOString(),
       deliveryStatus: deliveryInfo?.required ? 'pending' : (slipData.deliveryStatus || existing?.deliveryStatus || 'none'),
@@ -120,7 +138,7 @@ export async function POST(req: Request) {
       if (existing) { // 수정 저장 실패 → 옛 전표와 그 영향을 그대로 되살린다
         await supabase.from('slips').insert(existing);
         if (oldDeliveries.length) await supabase.from('deliveries').insert(oldDeliveries);
-        await applyOldSlipEffects(existing, editCfg, -1);
+        await applyOldSlipEffects(existing, editCfg, -1, 'restore');
         if (editCfg) await syncReceivables(String(existing.customerId || ''), editCfg);
       }
       throw new Error(slipError.message);
@@ -185,8 +203,9 @@ export async function POST(req: Request) {
           if (stockModifier !== 0) {
             const newStock = p.currentStock + (item.qty * stockModifier);
             await supabase.from('products').update({ currentStock: newStock }).eq('id', item.productId);
+            const logAt = uniqueNow(); // 요청 시작 시각이 아니라 «지금» — 같은 요청에서 먼저 남긴 수정 취소 기록보다 뒤에 오도록
             const { error: logError } = await supabase.from('inventory_logs').insert({
-              id: `log-${Date.now()}-${item.id}`,
+              id: `log-${logAt.getTime()}-${item.id}`,
               date: dateStr,
               productId: item.productId,
               productName: item.productName,
@@ -197,7 +216,7 @@ export async function POST(req: Request) {
               afterQty: newStock,
               slipNo: newSlip.slipNo,
               reason: `${st === 'SALES' ? '매출' : st === 'PURCHASE' ? '매입' : '반품·출고'} 전표 처리: ${customerName}`,
-              createdAt: now.toISOString()
+              createdAt: logAt.toISOString()
             });
             if (logError) console.error('inventory_logs insert failed:', logError.message);
           }

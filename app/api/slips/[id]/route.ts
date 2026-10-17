@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { openingConfig, syncReceivables } from '@/lib/receivables';
 import { audit } from '@/lib/audit';
+import { applyOldSlipEffects } from '@/lib/slipEdit';
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -12,25 +13,9 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       return NextResponse.json({ error: '전표를 찾을 수 없습니다.' }, { status: 404 });
     }
 
-    // Rollback customer receivables (매출 외상분)
+    // 미수금(매출 외상분)·재고를 되돌린다(수정 저장과 같은 규칙, 재고수불부에 기록)
     const opCfg = await openingConfig();
-    if (!opCfg && slip.slipType === 'SALES') {
-      const { data: cust } = await supabase.from('customers').select('receivables').eq('id', slip.customerId).maybeSingle();
-      if (cust) {
-        const next = Math.max(0, (cust.receivables || 0) - (slip.unpaidAmount || 0));
-        await supabase.from('customers').update({ receivables: next }).eq('id', slip.customerId);
-      }
-    }
-
-    // Rollback stock (전표 저장 때와 반대 방향)
-    for (const item of slip.items || []) {
-      if (!item.productId) continue;
-      const st = slip.slipType;
-      const delta = st === 'SALES' || st === 'RETURN_OUT' ? item.qty : st === 'PURCHASE' || st === 'RETURN_IN' ? -item.qty : 0;
-      if (delta === 0) continue;
-      const { data: p } = await supabase.from('products').select('currentStock').eq('id', item.productId).maybeSingle();
-      if (p) await supabase.from('products').update({ currentStock: p.currentStock + delta }).eq('id', item.productId);
-    }
+    await applyOldSlipEffects(slip, opCfg, 1, 'delete');
 
     await supabase.from('deliveries').delete().eq('slipId', id);
     const { error } = await supabase.from('slips').delete().eq('id', id);

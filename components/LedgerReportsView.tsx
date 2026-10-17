@@ -18,6 +18,7 @@ interface LedgerReportsViewProps {
   company?: { name: string; ceo: string; bizNumber: string; address: string; bizType: string; bizItem: string };
   customerPrices: Record<string, Record<string, any>>;
   onPricesChanged?: () => void; // 단가표 복사 뒤 화면 자료를 다시 읽는다
+  onUpdateCustomer?: (id: string, c: Partial<Customer>) => Promise<void>; // 전화번호부 편집(거래처·현장의 담당·전화·팩스·이메일)
   osTheme: OSTheme;
 }
 
@@ -129,7 +130,7 @@ function OpeningEditor({ customers, opening, onSave }: { customers: { id: string
   );
 }
 
-export function LedgerReportsView({ slips: rawSlips, collections, customers, taxInvoices, products = [], bills = [], company, customerPrices, onPricesChanged }: LedgerReportsViewProps) {
+export function LedgerReportsView({ slips: rawSlips, collections, customers, taxInvoices, products = [], bills = [], company, customerPrices, onPricesChanged, onUpdateCustomer }: LedgerReportsViewProps) {
   const [section, setSection] = useState<Section>('daily');
 
   // 이관 과정에서 생긴 대문자 'SALES' 전표 중, 같은 날짜·합계의 소문자 'sales' 전표가 이미 있는 것은 중복 의심으로 집계에서 뺀다.
@@ -149,6 +150,22 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   const [to, setTo] = useState<string>(latestDate);
   const [year, setYear] = useState<string>(latestDate.slice(0, 4));
   const [phoneQuery, setPhoneQuery] = useState<string>('');
+  const [phoneEdit, setPhoneEdit] = useState<{ key: string; cid: string; sid: string; who: string; tel: string; mobile: string; fax: string; email: string } | null>(null);
+  const [phoneMsg, setPhoneMsg] = useState<string>('');
+  const savePhone = async () => {
+    if (!phoneEdit || !onUpdateCustomer) return;
+    const e = phoneEdit;
+    const bad = (['tel', 'mobile', 'fax'] as const).find(k => e[k].trim() && !/^[0-9+()\-\s]+$/.test(e[k].trim()));
+    if (bad) { setPhoneMsg(`오류: ${bad === 'tel' ? '전화' : bad === 'mobile' ? '휴대폰' : '팩스'}에는 숫자·+·-·괄호만 쓸 수 있습니다.`); return; }
+    if (e.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.email.trim())) { setPhoneMsg('오류: 이메일 형식이 올바르지 않습니다.'); return; }
+    const cust = customers.find(c => c.id === e.cid);
+    if (!cust) { setPhoneMsg('오류: 거래처를 찾을 수 없습니다.'); return; }
+    try {
+      if (!e.sid) await onUpdateCustomer(e.cid, { ceo: e.who.trim(), tel: e.tel.trim(), mobile: e.mobile.trim(), fax: e.fax.trim(), email: e.email.trim() });
+      else await onUpdateCustomer(e.cid, { sites: (cust.sites || []).map(s => s.id === e.sid ? { ...s, manager: e.who.trim(), tel: e.tel.trim() } : s) });
+      setPhoneEdit(null); setPhoneMsg('저장했습니다.');
+    } catch (err: any) { setPhoneMsg(`오류: ${err.message || err}`); }
+  };
 
   // ───────── 일계표 ─────────
   const daily = useMemo(() => {
@@ -720,8 +737,8 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
   const phonebook = useMemo(() => {
     const q = phoneQuery.trim().toLowerCase();
     const rows = customers.flatMap(c => {
-      const base = { code: c.code, name: c.name, who: c.ceo, tel: c.tel, mobile: c.mobile, fax: c.fax, email: c.email, place: c.address };
-      const sites = (c.sites || []).map(s => ({ code: s.siteCode, name: `${c.name} · ${s.siteName}`, who: s.manager, tel: s.tel, mobile: undefined, fax: undefined, email: undefined, place: s.address }));
+      const base = { cid: c.id, sid: '', code: c.code, name: c.name, who: c.ceo, tel: c.tel, mobile: c.mobile, fax: c.fax, email: c.email, place: c.address };
+      const sites = (c.sites || []).map(s => ({ cid: c.id, sid: s.id, code: s.siteCode, name: `${c.name} · ${s.siteName}`, who: s.manager, tel: s.tel, mobile: undefined, fax: undefined, email: undefined, place: s.address }));
       return [base, ...sites];
     });
     return rows.filter(r => !q || [r.name, r.who, r.tel, r.mobile, r.fax, r.email].some(v => v && String(v).toLowerCase().includes(q)));
@@ -1264,6 +1281,7 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
           <div className="flex items-center gap-2 text-xs">
             <input value={phoneQuery} onChange={e => setPhoneQuery(e.target.value)} placeholder="상호·대표·전화·이메일 검색" className="border border-slate-300 rounded px-2 py-1 w-72" />
             <span className="text-slate-500">{phonebook.length.toLocaleString()}건</span>
+            {phoneMsg && <span className={phoneMsg.startsWith('오류') ? 'text-red-600 font-semibold' : 'text-emerald-700 font-semibold'}>{phoneMsg}</span>}
             <button
               onClick={() => downloadCsv('전화번호부.csv', [['코드', '상호', '담당·대표', '전화', '휴대폰', '팩스', '이메일', '주소'], ...phonebook.map(r => [r.code, r.name, r.who || '', r.tel || '', r.mobile || '', r.fax || '', r.email || '', r.place || ''])])}
               className="ml-auto flex items-center gap-1 border border-slate-300 rounded px-2 py-1 hover:bg-slate-50"
@@ -1272,16 +1290,29 @@ export function LedgerReportsView({ slips: rawSlips, collections, customers, tax
             </button>
           </div>
           <table className="w-full border-collapse">
-            <thead><tr>{['상호', '담당·대표', '전화', '휴대폰', '팩스', '이메일', '주소'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['상호', '담당·대표', '전화', '휴대폰', '팩스', '이메일', '주소', ''].map((h, i) => <th key={i} className={th}>{h}</th>)}</tr></thead>
             <tbody>
-              {phonebook.slice(0, 300).map((r, i) => (
-                <tr key={i}>
-                  <td className={td}>{r.name}</td><td className={td}>{r.who}</td>
-                  <td className={td}>{r.tel && <a href={`tel:${r.tel}`} className="text-blue-600">{r.tel}</a>}</td>
-                  <td className={td}>{r.mobile && <a href={`tel:${r.mobile}`} className="text-blue-600">{r.mobile}</a>}</td>
-                  <td className={td}>{r.fax}</td><td className={td}>{r.email}</td><td className={td}>{r.place}</td>
-                </tr>
-              ))}
+              {phonebook.slice(0, 300).map((r, i) => {
+                const key = `${r.cid}|${r.sid}`;
+                if (phoneEdit?.key === key) {
+                  const inp = (f: 'who' | 'tel' | 'mobile' | 'fax' | 'email', disabled = false) => <input value={phoneEdit[f]} disabled={disabled} onChange={ev => setPhoneEdit({ ...phoneEdit, [f]: ev.target.value })} className="w-full border border-blue-300 rounded px-1 py-0.5 text-xs disabled:bg-slate-100" />;
+                  return (
+                    <tr key={i} className="bg-blue-50">
+                      <td className={td}>{r.name}</td><td className={td}>{inp('who')}</td><td className={td}>{inp('tel')}</td><td className={td}>{inp('mobile', !!r.sid)}</td><td className={td}>{inp('fax', !!r.sid)}</td><td className={td}>{inp('email', !!r.sid)}</td><td className={td}>{r.place}</td>
+                      <td className={`${td} whitespace-nowrap`}><button onClick={savePhone} className="text-blue-700 font-bold mr-2">저장</button><button onClick={() => { setPhoneEdit(null); setPhoneMsg(''); }} className="text-slate-500">취소</button></td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr key={i}>
+                    <td className={td}>{r.name}</td><td className={td}>{r.who}</td>
+                    <td className={td}>{r.tel && <a href={`tel:${r.tel}`} className="text-blue-600">{r.tel}</a>}</td>
+                    <td className={td}>{r.mobile && <a href={`tel:${r.mobile}`} className="text-blue-600">{r.mobile}</a>}</td>
+                    <td className={td}>{r.fax}</td><td className={td}>{r.email}</td><td className={td}>{r.place}</td>
+                    <td className={td}>{onUpdateCustomer && <button onClick={() => { setPhoneMsg(''); setPhoneEdit({ key, cid: r.cid, sid: r.sid, who: r.who || '', tel: cleanTel(r.tel), mobile: cleanTel(r.mobile), fax: cleanTel(r.fax), email: r.email || '' }); }} className="text-slate-500 hover:text-blue-700">수정</button>}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {phonebook.length > 300 && <p className="text-[11px] text-slate-500">300건까지 표시했습니다. 검색으로 좁히거나 CSV로 전체를 받으세요.</p>}

@@ -277,6 +277,18 @@ export function CloudSyncAndIniView({
                   <input type="number" min={0} max={100} step="0.1" value={o.vatRate} onChange={e => set({ vatRate: Number(e.target.value) })} className={sel} />
                   <p className="text-[10px] text-slate-400 mt-0.5">«부가세 별도(세액 가산)» 전표와 세금계산서 기본 세액에 쓰입니다</p>
                 </div>
+                <div className="md:col-span-3">
+                  <label className="block font-semibold text-slate-700 mb-1">상품 검색 방법 (전표 입력의 품목 검색)</label>
+                  <select value={o.productSearch} onChange={e => set({ productSearch: e.target.value as EnvOptions['productSearch'] })} className={sel}>
+                    <option value="basic">기본 — 입력한 글자 전체가 품명·규격·코드·분류·바코드 중 한 곳에 들어 있는 품목 (지금까지 방식)</option>
+                    <option value="words">단어별 — 띄어 쓴 단어가 모두 들어 있는 품목 (예: «볼트 3/8», «앙카 1/2», «너트 M12»), 다른명칭도 검색, 품명이 첫 단어로 시작하는 품목을 먼저</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-0.5">«기본»에서는 품명과 규격을 띄어 써서 검색하면 결과가 나오지 않습니다. 단어 하나만 입력하면 두 방식 모두 같은 품목을 찾습니다.</p>
+                </div>
+                <label className="flex items-start gap-2 md:col-span-3 text-slate-700">
+                  <input type="checkbox" checked={o.quickAddProduct} onChange={e => set({ quickAddProduct: e.target.checked })} className="mt-0.5" />
+                  <span><b>전표 입력 중 새 품목 등록</b> — 품목 검색 결과가 없을 때 «새 품목으로 등록하고 전표에 담기» 버튼을 보입니다(같은 품명·규격이 이미 있으면 그 품목을 씁니다)</span>
+                </label>
                 <label className="flex items-start gap-2 md:col-span-3 text-slate-700">
                   <input type="checkbox" checked={o.creditLimitCheck} onChange={e => set({ creditLimitCheck: e.target.checked })} className="mt-0.5" />
                   <span><b>여신한도 관리</b> — 매출을 저장한 뒤 거래처 미수금이 그 거래처의 여신한도를 넘으면 저장 전에 확인을 묻습니다(한도를 0이나 빈칸으로 둔 거래처는 검사하지 않음)</span>

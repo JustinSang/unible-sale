@@ -6,6 +6,7 @@ import { displayProductName } from '@/lib/productName';
 import { HistoryPicker, MyItemsPicker } from '@/components/SlipAssist';
 import { roundBy, normalizeCalc, type CalcConfig } from '@/lib/calcRules';
 import { normalizeOptions, roundTo, type EnvOptions } from '@/lib/envOptions';
+import { searchProducts } from '@/lib/productSearch';
 import {
   Copy,
   Plus,
@@ -39,6 +40,7 @@ interface SlipEntryViewProps {
   adminMode?: boolean; // 관리자 모드: 발송·배송된 전표도 수정·삭제 가능
   onNavigateTab: (tab: string) => void;
   onQuickAddCustomer?: (c: Partial<Customer>) => Promise<Customer | undefined>;
+  onQuickAddProduct?: (p: Partial<Product>) => Promise<Product | undefined>; // 환경설정의 «전표신규상품저장»: 검색 결과가 없을 때 새 품목을 바로 등록
   osTheme: OSTheme;
   calc?: Partial<CalcConfig>; // 환경설정의 금액 반올림(없으면 반올림=기존 동작)
   options?: Partial<EnvOptions>; // 환경설정의 단가·수량 소수점·부가세율·여신한도 경고(없으면 기존 동작)
@@ -56,6 +58,7 @@ export function SlipEntryView({
   adminMode = false,
   onNavigateTab,
   onQuickAddCustomer,
+  onQuickAddProduct,
   osTheme,
   calc,
   options
@@ -280,6 +283,8 @@ export function SlipEntryView({
 
   // Fast Product Search Modal States (11,000+ items high performance)
   const [isProductSearchOpen, setIsProductSearchOpen] = useState<boolean>(false);
+  const [quickProd, setQuickProd] = useState<{ name: string; spec: string; unit: string; price: string } | null>(null);
+  const [pendingPick, setPendingPick] = useState<{ id: string; row: number } | null>(null); // 방금 등록한 품목이 목록에 들어온 뒤 줄에 담는다
   const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
   const [productSearchKeyword, setProductSearchKeyword] = useState<string>('');
   // 원본 규격 목록 창: 같은 품명의 여러 규격에 수량을 한꺼번에 넣고 Esc로 확정한다.
@@ -330,30 +335,25 @@ export function SlipEntryView({
     setQuickCust(null); pickCustomer(created.id); showToast(`거래처 «${created.name}»을(를) 등록하고 선택했습니다.`, 'success');
   };
 
-  const searchResults = useMemo(() => {
-    if (!deferredProductSearchKeyword.trim()) {
-      return products.filter(p => !p.inactive).slice(0, 50);
-    }
-    const q = deferredProductSearchKeyword.toLowerCase();
-    const matches: Product[] = [];
-    for (const p of products) {
-      if (p.inactive) continue;
-      if (
-        p.name.toLowerCase().includes(q) ||
-        p.code.toLowerCase().includes(q) ||
-        p.spec.toLowerCase().includes(q) ||
-        (p.category && p.category.toLowerCase().includes(q)) ||
-        (p.barcode && p.barcode.toLowerCase().includes(q))
-      ) {
-        matches.push(p);
-        if (matches.length >= 60) break;
-      }
-    }
-    // 바코드 스캐너는 숫자열 + Enter로 입력된다 — 바코드가 정확히 같은 품목을 맨 앞에 둬서 Enter 한 번에 바로 선택되게 한다.
-    const exact = matches.findIndex(p => p.barcode && p.barcode.toLowerCase() === q);
-    if (exact > 0) matches.unshift(matches.splice(exact, 1)[0]);
-    return matches;
-  }, [products, deferredProductSearchKeyword]);
+  const searchResults = useMemo(() => searchProducts(products, deferredProductSearchKeyword, opt.productSearch), [products, deferredProductSearchKeyword, opt.productSearch]);
+
+  // 전표신규상품저장: 검색 결과가 없을 때 새 품목을 등록하고 현재 줄에 담는다. 같은 품명·규격이 이미 있으면 새로 만들지 않고 그 품목을 쓴다.
+  const handleQuickProductSave = async () => {
+    if (!quickProd || !onQuickAddProduct) return;
+    const name = quickProd.name.trim(), spec = quickProd.spec.trim();
+    if (!name) { alert('품명을 입력하세요.'); return; }
+    const dup = products.find(p => !p.inactive && p.name.trim() === name && p.spec.trim() === spec);
+    const prod = dup || await onQuickAddProduct({ name, spec, unit: quickProd.unit.trim() || 'EA', sellingPrice: Number(quickProd.price) || 0 });
+    if (!prod) { alert('품목을 등록하지 못했습니다.'); return; }
+    setPendingPick({ id: prod.id, row: activeRowIndex !== null ? activeRowIndex : 0 });
+    setQuickProd(null); setIsProductSearchOpen(false);
+    showToast(dup ? `이미 있는 품목 «${prod.name}»을(를) 담았습니다.` : `새 품목 «${prod.name}»을(를) 등록하고 담았습니다.`, 'success');
+  };
+
+  useEffect(() => {
+    if (pendingPick && products.some(p => p.id === pendingPick.id)) { handleItemChange(pendingPick.row, 'productId', pendingPick.id); setPendingPick(null); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPick, products]);
 
   // Selected customer object
   const currentCustomer = useMemo(() => {
@@ -2072,6 +2072,27 @@ export function SlipEntryView({
                     <tr>
                       <td colSpan={8} className="py-12 text-center text-slate-400">
                         &quot;{productSearchKeyword}&quot;에 일치하는 품목이 없습니다.
+                        {opt.quickAddProduct && onQuickAddProduct && productSearchKeyword.trim() && (
+                          <div className="mt-3 inline-block text-left text-slate-700">
+                            {!quickProd ? (
+                              <button type="button" onClick={() => setQuickProd({ name: productSearchKeyword.trim(), spec: '', unit: 'EA', price: '' })} className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold">+ 새 품목으로 등록하고 전표에 담기</button>
+                            ) : (
+                              <div className="space-y-1.5 p-3 border border-blue-200 rounded-lg bg-blue-50">
+                                <div className="flex gap-1.5">
+                                  <input value={quickProd.name} onChange={e => setQuickProd({ ...quickProd, name: e.target.value })} placeholder="품명" className="border border-slate-300 rounded px-2 py-1 w-44" />
+                                  <input value={quickProd.spec} onChange={e => setQuickProd({ ...quickProd, spec: e.target.value })} placeholder="규격" className="border border-slate-300 rounded px-2 py-1 w-32" />
+                                  <input value={quickProd.unit} onChange={e => setQuickProd({ ...quickProd, unit: e.target.value })} placeholder="단위" className="border border-slate-300 rounded px-2 py-1 w-14" />
+                                  <input type="number" value={quickProd.price} onChange={e => setQuickProd({ ...quickProd, price: e.target.value })} placeholder="출고가" className="border border-slate-300 rounded px-2 py-1 w-24 text-right" />
+                                </div>
+                                <div className="flex gap-2">
+                                  <button type="button" onClick={handleQuickProductSave} className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold">등록하고 담기</button>
+                                  <button type="button" onClick={() => setQuickProd(null)} className="px-3 py-1 rounded border border-slate-300">취소</button>
+                                  <span className="text-[11px] text-slate-500 self-center">품목관리에 새 품목이 만들어집니다(재고 0).</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ) : (

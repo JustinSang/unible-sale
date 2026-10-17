@@ -306,6 +306,15 @@ export default function App() {
     }
   };
 
+  // 전표 입력 중 새 품목 바로 등록(환경설정 «전표신규상품저장»): 만든 품목을 돌려줘서 전표 줄에 바로 담게 한다.
+  const handleQuickAddProduct = async (p: Partial<Product>): Promise<Product | undefined> => {
+    const res = await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
+    if (!res.ok) return undefined;
+    const newProd: Product = await res.json();
+    setProducts(prev => [newProd, ...prev]);
+    return newProd;
+  };
+
   const handleUpdateProduct = async (id: string, p: Partial<Product>) => {
     const res = await fetch(`/api/products/${id}`, {
       method: 'PUT',
@@ -517,6 +526,7 @@ export default function App() {
                 adminMode={adminMode}
                 onNavigateTab={setCurrentTab}
                 onQuickAddCustomer={handleQuickAddCustomer}
+                onQuickAddProduct={handleQuickAddProduct}
                 osTheme={osTheme}
                 calc={config.calc}
                 options={config.options}

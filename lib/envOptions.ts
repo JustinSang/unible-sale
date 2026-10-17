@@ -7,9 +7,11 @@ export interface EnvOptions {
   creditLimitCheck: boolean;     // 여신한도관리: 매출 저장 때 거래처 여신한도를 넘으면 확인을 묻는다(원본의 정확한 동작은 미확인 — 경고 후 진행 선택으로 만듦)
   autoSaveSalesPrice: boolean;   // 매출가 자동저장(원본): 매출 저장 때 거래처별 단가 이력 갱신
   autoSavePurchasePrice: boolean; // 매입가 자동저장(원본): 매입 저장 때 품목의 매입단가·최종매입처 갱신
+  productSearch: 'basic' | 'words'; // 상품검색방법(원본 «상품검색방법»): basic=입력한 글자 전체를 한 덩어리로 찾음(기존), words=띄어 쓴 단어가 모두 들어간 품목(품명+규격)
+  quickAddProduct: boolean;      // 전표신규상품저장(원본): 검색 결과가 없을 때 전표 입력 중에 새 품목을 바로 등록해 담는다(원본의 정확한 동작은 미확인 — 이 앱 방식으로 만듦)
   print?: Partial<PrintOptions>; // 거래명세표 선택 추가 출력
 }
-export const DEFAULT_OPTIONS: EnvOptions = { priceDecimals: 0, qtyDecimals: 0, vatRate: 10, creditLimitCheck: false, autoSaveSalesPrice: true, autoSavePurchasePrice: true };
+export const DEFAULT_OPTIONS: EnvOptions = { priceDecimals: 0, qtyDecimals: 0, vatRate: 10, creditLimitCheck: false, autoSaveSalesPrice: true, autoSavePurchasePrice: true, productSearch: 'basic', quickAddProduct: false };
 
 const pick = <T extends number>(v: unknown, allowed: readonly T[], d: T): T => (allowed.includes(Number(v) as T) ? (Number(v) as T) : d);
 
@@ -24,6 +26,8 @@ export function normalizeOptions(raw?: Partial<EnvOptions> | null): EnvOptions {
     creditLimitCheck: o.creditLimitCheck === true,
     autoSaveSalesPrice: o.autoSaveSalesPrice !== false,
     autoSavePurchasePrice: o.autoSavePurchasePrice !== false,
+    productSearch: o.productSearch === 'words' ? 'words' : 'basic',
+    quickAddProduct: o.quickAddProduct === true,
     print: normalizePrint(o.print) // 다른 항목을 저장할 때 출력 옵션이 사라지지 않게 함께 돌려준다
   };
 }

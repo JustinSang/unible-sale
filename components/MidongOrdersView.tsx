@@ -29,7 +29,8 @@ export function MidongOrdersView({ slips, onSlipsChanged }: { slips: Slip[]; onS
   const [q, setQ] = useState('');
   const [onlyDiff, setOnlyDiff] = useState(false);
   const [page, setPage] = useState(0);
-  const [mode, setMode] = useState<'lines' | 'months' | 'import' | 'convert'>('lines');
+  const [mode, setMode] = useState<'lines' | 'months' | 'import' | 'convert' | 'unshipped'>('lines');
+  const [usGroup, setUsGroup] = useState<'line' | 'item'>('line');
   const [cvFrom, setCvFrom] = useState('2020-01-01');
   const [cvTo, setCvTo] = useState('2023-12-31');
   const [cvSettle, setCvSettle] = useState<'paid' | 'unpaid'>('paid');
@@ -60,6 +61,17 @@ export function MidongOrdersView({ slips, onSlipsChanged }: { slips: Slip[]; onS
       .sort((a, b) => b.closeYm.localeCompare(a.closeYm) || b.inDate.localeCompare(a.inDate) || a.rno.localeCompare(b.rno));
   }, [lines, year, ym, q, onlyDiff]);
   const tot = useMemo(() => ({ n: filtered.length, rno: new Set(filtered.map(l => l.rno)).size, ord: filtered.reduce((a, l) => a + l.ordAmt, 0), inn: filtered.reduce((a, l) => a + l.inAmt, 0) }), [filtered]);
+
+  // 미납(미출하) 대사: 발주수량 > 입고수량인 줄의 잔량(이카운트 «미출하현황»의 라인별/품목별 보기). 연도·검색어만 적용(마감월 무관).
+  const unshipped = useMemo(() => {
+    const t = q.trim();
+    const base = lines.filter(l => (year === 'all' || l.closeYm.startsWith(year)) && (!t || `${l.rno} ${l.site} ${l.name} ${l.spec}`.includes(t)));
+    const short = base.filter(l => l.ordQty > l.inQty).map(l => ({ ...l, remQty: l.ordQty - l.inQty, remAmt: (l.ordQty - l.inQty) * l.price }))
+      .sort((a, b) => b.closeYm.localeCompare(a.closeYm) || a.rno.localeCompare(b.rno));
+    const items = new Map<string, { name: string; spec: string; unit: string; n: number; qty: number; amt: number }>();
+    short.forEach(l => { const k = `${l.name}\u0001${l.spec}\u0001${l.unit}`; const v = items.get(k) || { name: l.name, spec: l.spec, unit: l.unit, n: 0, qty: 0, amt: 0 }; v.n++; v.qty += l.remQty; v.amt += l.remAmt; items.set(k, v); });
+    return { short, items: [...items.values()].sort((a, b) => b.amt - a.amt), over: base.filter(l => l.inQty > l.ordQty).length, qty: short.reduce((a, l) => a + l.remQty, 0), amt: short.reduce((a, l) => a + l.remAmt, 0) };
+  }, [lines, year, q]);
 
   // 달력 월(입고일 기준) 포털 입고 vs ERP 미동 매출(전표 일자 기준, 반품 차감)
   const recon = useMemo(() => {
@@ -143,7 +155,7 @@ export function MidongOrdersView({ slips, onSlipsChanged }: { slips: Slip[]; onS
         <button onClick={exportExcel} className="flex items-center gap-1 border border-emerald-300 text-emerald-700 rounded px-2 py-1 hover:bg-emerald-50 font-semibold"><Download className="w-3 h-3" /> 엑셀로 내보내기(현재 조건)</button>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        {([['lines', '발주·입고 줄'], ['months', 'ERP 매출과 월별 대조'], ['import', '수주 전표로 가져오기'], ['convert', '매출 전환·정산']] as const).map(([k, l]) => (
+        {([['lines', '발주·입고 줄'], ['months', 'ERP 매출과 월별 대조'], ['import', '수주 전표로 가져오기'], ['unshipped', '미납(미출하) 대사'], ['convert', '매출 전환·정산']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setMode(k)} className={`px-3 py-1.5 rounded border font-semibold ${mode === k ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{l}</button>
         ))}
         <select value={year} onChange={e => { setYear(e.target.value); setYm('all'); setPage(0); }} className="border border-slate-300 rounded px-2 py-1 ml-2"><option value="all">전체 연도</option>{years.map(y => <option key={y} value={y}>{y}년</option>)}</select>
@@ -179,6 +191,34 @@ export function MidongOrdersView({ slips, onSlipsChanged }: { slips: Slip[]; onS
             <span className="text-slate-400">엑셀로 내보내기는 현재 조건의 전체 줄을 담습니다.</span>
           </div>
         </>
+      )}
+
+      {mode === 'unshipped' && (
+        <div className="space-y-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="청구번호·현장·품명·규격" className="border border-slate-300 rounded px-2 py-1 w-52" />
+            {([['line', '라인별'], ['item', '품목별']] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setUsGroup(k)} className={`px-3 py-1 rounded border font-semibold ${usGroup === k ? 'bg-slate-700 text-white border-slate-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{l}</button>
+            ))}
+            <button onClick={() => downloadRows(`미동_미납대사_${new Date().toISOString().slice(0, 10)}.csv`, usGroup === 'line'
+              ? [['마감월', '청구번호', '현장', '품명', '규격', '단위', '발주수량', '입고수량', '잔량', '단가', '잔액'], ...unshipped.short.map(l => [l.closeYm, l.rno, l.site, l.name, l.spec, l.unit, l.ordQty, l.inQty, l.remQty, l.price, l.remAmt])]
+              : [['품명', '규격', '단위', '줄수', '잔량', '잔액'], ...unshipped.items.map(i => [i.name, i.spec, i.unit, i.n, i.qty, i.amt])])} className="flex items-center gap-1 border border-emerald-300 text-emerald-700 rounded px-2 py-1 hover:bg-emerald-50 font-semibold"><Download className="w-3 h-3" /> CSV</button>
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 bg-slate-50 border border-slate-200 rounded px-3 py-2">
+            <span>미납 <b>{won(unshipped.short.length)}</b>줄</span><span>잔량 합계 <b className="font-mono">{won(unshipped.qty)}</b></span><span>잔액 합계(잔량×발주단가) <b className="font-mono">{won(unshipped.amt)}</b></span>
+            {unshipped.over > 0 && <span className="text-amber-700">입고가 발주보다 많은 줄 {unshipped.over}건은 제외</span>}
+          </div>
+          <p className="text-slate-500">포털 «자재마감» 시점의 발주수량과 입고수량 차이입니다. 마감 뒤에 나머지가 추가 입고됐는지는 포털 자료에 없어 알 수 없습니다 — 잔량이 실제로 남았는지는 거래처 확인이 필요합니다.</p>
+          <div className="max-h-[32rem] overflow-auto"><table className="w-full border-collapse">
+            {usGroup === 'line' ? <>
+              <thead><tr>{['마감월', '청구번호', '현장', '품명', '규격', '단위', '발주수량', '입고수량', '잔량', '단가', '잔액'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>{unshipped.short.map(l => <tr key={l.id}><td className={td}>{l.closeYm.slice(0, 4)}-{l.closeYm.slice(4)}</td><td className={`${td} font-mono`}>{l.rno}</td><td className={`${td} max-w-[220px] truncate`} title={l.site}>{l.site}</td><td className={td}>{l.name}</td><td className={td}>{l.spec}</td><td className={td}>{l.unit}</td><td className={num}>{l.ordQty}</td><td className={num}>{l.inQty}</td><td className={`${num} font-bold text-rose-600`}>{l.remQty}</td><td className={num}>{won(l.price)}</td><td className={num}>{won(l.remAmt)}</td></tr>)}</tbody>
+            </> : <>
+              <thead><tr>{['품명', '규격', '단위', '줄수', '잔량', '잔액'].map(h => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>{unshipped.items.map(i => <tr key={`${i.name}|${i.spec}|${i.unit}`}><td className={td}>{i.name}</td><td className={td}>{i.spec}</td><td className={td}>{i.unit}</td><td className={num}>{i.n}</td><td className={`${num} font-bold text-rose-600`}>{won(i.qty)}</td><td className={num}>{won(i.amt)}</td></tr>)}</tbody>
+            </>}
+          </table></div>
+        </div>
       )}
 
       {mode === 'months' && (

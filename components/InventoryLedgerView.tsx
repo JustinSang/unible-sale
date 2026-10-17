@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { InventoryLog, Product, OSTheme } from '@/types';
 import { StockCountModal } from '@/components/StockCount';
+import { StockRecalcModal } from '@/components/StockRecalc';
 
 interface InventoryLedgerViewProps {
   logs: InventoryLog[];
@@ -40,6 +41,7 @@ export function InventoryLedgerView({
   // Modal for manual stock adjustment
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState<boolean>(false);
   const [isCountOpen, setIsCountOpen] = useState<boolean>(false);
+  const [isRecalcOpen, setIsRecalcOpen] = useState<boolean>(false);
   const [targetProductId, setTargetProductId] = useState<string>(products[0]?.id || '');
   const [adjustQty, setAdjustQty] = useState<number>(0);
   const [adjustReason, setAdjustReason] = useState<string>('월말 정기 재고 실사 차이분 조정');
@@ -93,6 +95,7 @@ export function InventoryLedgerView({
 
   return (
     <div className="space-y-4">
+      {isRecalcOpen && <StockRecalcModal onClose={() => setIsRecalcOpen(false)} onRefresh={onRefresh} />}
       {isCountOpen && <StockCountModal products={products} onClose={() => setIsCountOpen(false)} onRefresh={onRefresh} />}
       {/* KPI Dashboard Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -148,6 +151,13 @@ export function InventoryLedgerView({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsRecalcOpen(true)}
+              className="px-3.5 py-2 text-xs font-bold rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1.5 shadow-sm transition-colors"
+              title="전표로 재고를 다시 세어 현재고와 다른 품목을 찾고, 고른 품목만 맞춥니다"
+            >
+              재고 점검·보정
+            </button>
             <button
               onClick={() => setIsCountOpen(true)}
               className="px-3.5 py-2 text-xs font-bold rounded-lg border border-blue-300 bg-white hover:bg-blue-50 text-blue-700 flex items-center gap-1.5 shadow-sm transition-colors"
